@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 
 const SUGGESTIONS = [
@@ -11,10 +11,56 @@ const SUGGESTIONS = [
 
 export default function Hero() {
   const [query, setQuery] = useState('')
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
   const router = useRouter()
 
   const handleSearch = () => {
     if (query.trim()) router.push(`/search?q=${encodeURIComponent(query.trim())}`)
+  }
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg'
+      const mediaRecorder = new MediaRecorder(stream, { mimeType })
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        setTranscribing(true)
+        try {
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
+          const formData = new FormData()
+          formData.append('audio', audioBlob, `recording.${mimeType.split('/')[1]}`)
+          const res = await fetch('/api/ask', { method: 'POST', body: formData })
+          const data = await res.json()
+          if (data.transcript) setQuery(data.transcript)
+        } catch { /* ignore STT errors */ }
+        setTranscribing(false)
+      }
+      mediaRecorder.start()
+      setRecording(true)
+    } catch {
+      alert('Microphone permission denied. Please allow mic access to use voice search.')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      mediaRecorderRef.current.stop()
+      setRecording(false)
+    }
+  }
+
+  const toggleRecording = () => {
+    if (recording) stopRecording()
+    else startRecording()
   }
 
   return (
@@ -68,24 +114,45 @@ export default function Hero() {
       </p>
 
       {/* Search */}
+      <style>{`@keyframes hero-pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }`}</style>
       <div style={{ marginTop: 48, width: '100%', maxWidth: 680, position: 'relative', zIndex: 2, animation: 'fade-up .6s .3s ease both', opacity: 0, animationFillMode: 'forwards' }}>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12,
-          background: 'var(--surface)', border: '1px solid var(--border-accent)',
+          background: 'var(--surface)', border: `1px solid ${recording ? 'rgba(255,59,48,0.5)' : 'var(--border-accent)'}`,
           borderRadius: 16, padding: '6px 6px 6px 22px',
           boxShadow: '0 0 60px rgba(255,107,0,0.1), 0 20px 60px rgba(0,0,0,0.35)',
+          transition: 'border-color 0.2s',
         }}>
-          <span style={{ fontSize: 18, color: 'var(--text-muted)', flexShrink: 0 }}>🔍</span>
+          <span style={{ fontSize: 18, color: recording ? 'rgba(255,59,48,0.8)' : 'var(--text-muted)', flexShrink: 0, transition: 'color 0.2s' }}>
+            {recording ? '🔴' : '🔍'}
+          </span>
           <input
             type="text" value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleSearch()}
-            placeholder="Ask: Is Samsung Galaxy S24 worth buying in India?"
+            placeholder={recording ? 'Listening... tap mic to stop' : transcribing ? 'Transcribing your voice...' : 'Ask: Is Samsung Galaxy S24 worth buying in India?'}
+            disabled={recording || transcribing}
             style={{
               flex: 1, background: 'none', border: 'none', outline: 'none',
               fontFamily: 'DM Sans,sans-serif', fontSize: 16, color: 'var(--text)', padding: '12px 0',
             }}
           />
-          <button onClick={handleSearch} style={{
+          {/* Mic button */}
+          <button
+            onClick={toggleRecording}
+            disabled={transcribing}
+            title={recording ? 'Stop recording' : 'Voice search in Hindi, Tamil, Telugu & more'}
+            style={{
+              background: recording ? 'rgba(255,59,48,0.85)' : 'rgba(255,255,255,0.07)',
+              border: `1px solid ${recording ? 'rgba(255,59,48,0.5)' : 'var(--border)'}`,
+              borderRadius: 10, width: 44, height: 44, cursor: 'pointer', fontSize: 18,
+              flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              transition: 'all 0.2s',
+              animation: recording ? 'hero-pulse 1.2s infinite' : 'none',
+            }}
+          >
+            {recording ? '⏹' : '🎙️'}
+          </button>
+          <button onClick={handleSearch} disabled={recording || transcribing} style={{
             background: 'var(--saffron)', color: '#000', border: 'none', borderRadius: 12,
             padding: '14px 28px', fontFamily: 'Syne,sans-serif', fontSize: 14, fontWeight: 700,
             cursor: 'pointer', whiteSpace: 'nowrap', transition: 'background .2s',
