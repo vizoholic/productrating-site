@@ -127,7 +127,14 @@ ${!wixContext && !serpContext ? 'No product data found — use your knowledge of
     let data: { choices?: Array<{ message?: { content?: string } }> } = {}
     try { data = JSON.parse(rawText) } catch { /* not JSON */ }
 
-    const answer = data.choices?.[0]?.message?.content || 'Unable to generate answer.'
+    const raw = data.choices?.[0]?.message?.content || 'Unable to generate answer.'
+    // Strip Sarvam reasoning traces and markdown formatting
+    const answer = raw
+      .replace(/<think>[\s\S]*?<\/think>/gi, '')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`(.*?)`/g, '$1')
+      .trim()
     return NextResponse.json({
       answer,
       products: wixProducts.slice(0, 3),
