@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef } from 'react'
+import React, { useState, useRef } from 'react'
 
 type Message = {
   role: string
@@ -97,15 +97,15 @@ export default function AiDemoChat() {
     else startRecording()
   }
 
-  const micBtnStyle = {
+  const micBtnStyle: React.CSSProperties = {
     background: recording ? 'rgba(255,59,48,0.9)' : 'rgba(255,255,255,0.08)',
     border: `1px solid ${recording ? 'rgba(255,59,48,0.6)' : 'var(--border)'}`,
     borderRadius: 10,
     width: 36,
     height: 36,
-    cursor: 'pointer',
+    cursor: 'pointer' as const,
     fontSize: 15,
-    flexShrink: 0 as const,
+    flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
