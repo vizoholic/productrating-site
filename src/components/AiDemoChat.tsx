@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 type Message = {
   role: string
@@ -21,9 +21,13 @@ export default function AiDemoChat() {
   const [msgs, setMsgs] = useState<Message[]>(INITIAL_MSGS)
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioChunksRef = useRef<Blob[]>([])
 
-  const send = async () => {
-    const q = input.trim()
+  const send = async (question?: string) => {
+    const q = (question ?? input).trim()
     if (!q || loading) return
     setInput('')
     setLoading(true)
@@ -38,22 +42,95 @@ export default function AiDemoChat() {
       const data = await res.json()
       setMsgs(m => [...m, { role: 'ai', text: data.answer || 'Let me analyse that for you...', score: null, sources: [], tip: null, verdict: null }])
     } catch {
-      setMsgs(m => [...m, { role: 'ai', text: 'Connect this to your Claude API to get live AI answers!', score: null, sources: [], tip: null, verdict: null }])
+      setMsgs(m => [...m, { role: 'ai', text: 'Connect this to your Sarvam API to get live AI answers!', score: null, sources: [], tip: null, verdict: null }])
     }
     setLoading(false)
   }
 
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/ogg'
+      const mediaRecorder = new MediaRecorder(stream, { mimeType })
+      mediaRecorderRef.current = mediaRecorder
+      audioChunksRef.current = []
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data)
+      }
+
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop())
+        setTranscribing(true)
+        try {
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType })
+          const formData = new FormData()
+          formData.append('audio', audioBlob, `recording.${mimeType.split('/')[1]}`)
+
+          const res = await fetch('/api/ask', { method: 'POST', body: formData })
+          const data = await res.json()
+          if (data.transcript) {
+            setInput(data.transcript)
+          }
+        } catch {
+          // ignore STT errors silently
+        }
+        setTranscribing(false)
+      }
+
+      mediaRecorder.start()
+      setRecording(true)
+    } catch {
+      alert('Microphone permission denied. Please allow microphone access to use voice input.')
+    }
+  }
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && recording) {
+      mediaRecorderRef.current.stop()
+      setRecording(false)
+    }
+  }
+
+  const toggleRecording = () => {
+    if (recording) stopRecording()
+    else startRecording()
+  }
+
+  const micBtnStyle = {
+    background: recording ? 'rgba(255,59,48,0.9)' : 'rgba(255,255,255,0.08)',
+    border: `1px solid ${recording ? 'rgba(255,59,48,0.6)' : 'var(--border)'}`,
+    borderRadius: 10,
+    width: 36,
+    height: 36,
+    cursor: 'pointer',
+    fontSize: 15,
+    flexShrink: 0 as const,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s',
+    animation: recording ? 'pulse 1.2s infinite' : 'none',
+  }
+
   return (
     <section style={{ background: 'var(--bg2)', borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '100px 48px' }}>
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }`}</style>
       <div style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 80, alignItems: 'center' }}>
         <div>
-          <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, letterSpacing: 3, textTransform: 'uppercase', color: 'var(--saffron)', marginBottom: 16 }}>// AI Intelligence</div>
+          <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 11, letterSpacing: 3, textTransform: 'uppercase', color: 'var(--saffron)', marginBottom: 16 }}>// AI Intelligence — Powered by Sarvam</div>
           <h2 style={{ fontFamily: 'Syne,sans-serif', fontSize: 'clamp(32px,4vw,52px)', fontWeight: 800, letterSpacing: '-1.5px', lineHeight: 1.1 }}>Ask anything.<br />Get the real answer.</h2>
           <p style={{ marginTop: 16, fontSize: 16, fontWeight: 300, color: 'var(--text-dim)', lineHeight: 1.8, maxWidth: 440 }}>
-            Our AI reads lakhs of reviews, detects fake ones, weighs verified buyers, and gives you one honest verdict — in plain language.
+            India&apos;s own AI reads lakhs of reviews, detects fake ones, and gives you one honest verdict — type or speak in Hindi, Tamil, Telugu and more.
           </p>
           <div style={{ marginTop: 32, display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {['Fake review detection powered by ML','Sentiment analysis in Hindi, Tamil & more','City-wise performance insights (Delhi heat, Mumbai humidity)','6-month & 1-year ownership reports'].map(f => (
+            {[
+              '🎙️ Voice input in 22 Indian languages',
+              'Fake review detection powered by ML',
+              'Sentiment analysis in Hindi, Tamil & more',
+              'City-wise performance insights (Delhi heat, Mumbai humidity)',
+              '6-month & 1-year ownership reports',
+            ].map(f => (
               <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, color: 'var(--text-dim)' }}>
                 <span style={{ color: 'var(--green)', fontSize: 18 }}>✓</span> {f}
               </div>
@@ -62,20 +139,24 @@ export default function AiDemoChat() {
         </div>
 
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 20, overflow: 'hidden', boxShadow: '0 40px 100px rgba(0,0,0,0.5)' }}>
+          {/* Title bar */}
           <div style={{ background: 'var(--surface2)', padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', gap: 6 }}>
               {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} style={{ width: 10, height: 10, borderRadius: '50%', background: c }} />)}
             </div>
-            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>productrating.in / ai-assistant</span>
+            <span style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>productrating.in / sarvam-ai</span>
+            <span style={{ marginLeft: 'auto', fontFamily: 'JetBrains Mono,monospace', fontSize: 9, color: 'var(--saffron)', background: 'rgba(255,107,0,0.1)', border: '1px solid rgba(255,107,0,0.2)', borderRadius: 4, padding: '2px 6px' }}>🇮🇳 INDIA AI</span>
           </div>
-          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 380, overflowY: 'auto' }}>
+
+          {/* Messages */}
+          <div style={{ padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 14, maxHeight: 360, overflowY: 'auto' }}>
             {msgs.map((m, i) => (
               <div key={i} style={{ maxWidth: '88%', alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                 {m.role === 'user' ? (
                   <div style={{ background: 'rgba(255,107,0,0.15)', border: '1px solid rgba(255,107,0,0.2)', borderRadius: '12px 12px 4px 12px', padding: '12px 16px', fontSize: 13, lineHeight: 1.6 }}>{m.text}</div>
                 ) : (
                   <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '12px 12px 12px 4px', padding: '12px 16px', fontSize: 13, lineHeight: 1.6 }}>
-                    <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--saffron)', marginBottom: 6 }}>⚡ ProductRating AI</div>
+                    <div style={{ fontFamily: 'JetBrains Mono,monospace', fontSize: 9, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--saffron)', marginBottom: 6 }}>⚡ Sarvam AI × ProductRating</div>
                     {m.text}
                     {m.score && <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'rgba(0,230,118,0.1)', border: '1px solid rgba(0,230,118,0.25)', borderRadius: 100, padding: '3px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 600, color: 'var(--green)', margin: '8px 0 4px', width: 'fit-content' }}>⭐ {m.score} / 5.0 — PR Score</div>}
                     {m.verdict && <div style={{ background: 'rgba(255,140,42,0.1)', border: '1px solid rgba(255,140,42,0.3)', borderRadius: 100, padding: '3px 10px', fontFamily: 'JetBrains Mono,monospace', fontSize: 12, fontWeight: 600, color: 'var(--saffron-glow)', marginTop: 8, width: 'fit-content' }}>{m.verdict}</div>}
@@ -87,12 +168,38 @@ export default function AiDemoChat() {
                 )}
               </div>
             ))}
-            {loading && <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '12px 12px 12px 4px', padding: '12px 16px', fontSize: 13, color: 'var(--text-muted)', maxWidth: '88%' }}>⚡ Analysing...</div>}
+            {loading && <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '12px 12px 12px 4px', padding: '12px 16px', fontSize: 13, color: 'var(--text-muted)', maxWidth: '88%' }}>⚡ Sarvam is analysing...</div>}
+            {transcribing && <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: '12px 12px 12px 4px', padding: '12px 16px', fontSize: 13, color: 'var(--text-muted)', maxWidth: '88%' }}>🎙️ Converting speech to text...</div>}
           </div>
-          <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10 }}>
-            <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()}
-              placeholder="Ask your product question..." style={{ flex: 1, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', fontFamily: 'DM Sans,sans-serif', fontSize: 13, color: 'var(--text)', outline: 'none' }} />
-            <button onClick={send} style={{ background: 'var(--saffron)', border: 'none', borderRadius: 10, width: 36, height: 36, cursor: 'pointer', fontSize: 14, flexShrink: 0 }}>→</button>
+
+          {/* Input row */}
+          <div style={{ padding: '16px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && send()}
+              placeholder={recording ? '🔴 Recording... tap mic to stop' : transcribing ? 'Transcribing...' : 'Ask in Hindi, English, Tamil...'}
+              disabled={recording || transcribing}
+              style={{ flex: 1, background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', fontFamily: 'DM Sans,sans-serif', fontSize: 13, color: 'var(--text)', outline: 'none' }}
+            />
+            {/* Mic button */}
+            <button
+              onClick={toggleRecording}
+              disabled={transcribing || loading}
+              style={micBtnStyle}
+              title={recording ? 'Stop recording' : 'Speak your question (22 Indian languages)'}
+            >
+              {recording ? '⏹' : '🎙️'}
+            </button>
+            {/* Send button */}
+            <button
+              onClick={() => send()}
+              disabled={loading || recording || transcribing}
+              style={{ background: 'var(--saffron)', border: 'none', borderRadius: 10, width: 36, height: 36, cursor: 'pointer', fontSize: 14, flexShrink: 0 }}
+            >→</button>
+          </div>
+          <div style={{ padding: '8px 20px 12px', fontSize: 10, color: 'var(--text-muted)', fontFamily: 'JetBrains Mono,monospace', textAlign: 'center' }}>
+            🎙️ Voice supported in Hindi · Tamil · Telugu · Bengali · Kannada · Malayalam + more
           </div>
         </div>
       </div>
