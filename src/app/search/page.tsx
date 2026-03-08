@@ -1,4 +1,6 @@
 'use client'
+// v2 - visual search with product cards, price bars, star ratings
+export const dynamic = 'force-dynamic'
 import { useState, useEffect, Suspense, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
