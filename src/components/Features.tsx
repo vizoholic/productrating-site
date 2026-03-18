@@ -1,3 +1,4 @@
+'use client'
 const FEATURES = [
   { icon:'🇮🇳', title:'India-First Intelligence', desc:'Ratings calibrated to Indian income brackets, regional climates, power fluctuations, and local service availability.', tag:'Live Now', tagClass:'green' },
   { icon:'🕵️', title:'Fake Review Detection', desc:'Our proprietary ML flags incentivised, bot-generated, and seller-paid reviews. What you see is what real Indian buyers experienced.', tag:'Live Now', tagClass:'green' },
