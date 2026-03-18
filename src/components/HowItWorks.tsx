@@ -1,3 +1,4 @@
+'use client'
 const STEPS = [
   { n:'01', icon:'🕸️', title:'Aggregate from all platforms', desc:'We continuously collect reviews from Flipkart, Amazon, Nykaa, Meesho, Croma, JioMart & more — in real-time.' },
   { n:'02', icon:'🧠', title:'AI cleans & analyses', desc:'Our ML model detects fake reviews, weights verified buyers higher, and runs multilingual sentiment analysis across 11 Indian languages.' },
