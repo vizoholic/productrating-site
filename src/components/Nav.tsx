@@ -5,37 +5,39 @@ import Link from 'next/link'
 export default function Nav() {
   const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 12)
+    const fn = () => setScrolled(window.scrollY > 8)
     window.addEventListener('scroll', fn)
     return () => window.removeEventListener('scroll', fn)
   }, [])
-
   return (
     <nav style={{
       position:'fixed', top:0, left:0, right:0, zIndex:100,
-      display:'flex', alignItems:'center', justifyContent:'space-between',
-      padding:'0 48px', height:60,
-      background:'rgba(255,255,255,0.97)',
-      backdropFilter:'blur(12px)',
+      height:56, display:'flex', alignItems:'center', justifyContent:'space-between',
+      padding:'0 40px', background:'rgba(255,255,255,0.97)', backdropFilter:'blur(8px)',
       borderBottom:'1px solid var(--border)',
-      boxShadow: scrolled ? 'var(--shadow-sm)' : 'none',
+      boxShadow: scrolled ? 'var(--shadow-xs)' : 'none',
       transition:'box-shadow 0.2s',
     }}>
-      <Link href="/" style={{ fontFamily:'Syne,sans-serif', fontWeight:800, fontSize:18, letterSpacing:'-0.5px', color:'var(--text)' }}>
-        Product<span style={{ color:'var(--saffron)' }}>Rating</span><span style={{ color:'var(--text-muted)', fontWeight:400 }}>.in</span>
+      <Link href="/" style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <div style={{ width:28, height:28, background:'var(--blue)', borderRadius:6, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <span style={{ color:'#fff', fontSize:14, fontWeight:800, fontFamily:'Plus Jakarta Sans,sans-serif' }}>P</span>
+        </div>
+        <span style={{ fontFamily:'Plus Jakarta Sans,sans-serif', fontWeight:700, fontSize:15, color:'var(--ink)', letterSpacing:'-0.3px' }}>
+          ProductRating<span style={{ color:'var(--blue)' }}>.in</span>
+        </span>
       </Link>
-      <div style={{ display:'flex', gap:32, alignItems:'center' }}>
-        {[['Categories','/categories/smartphones-electronics'],['How It Works','/#how'],['About','/#features']].map(([label,href]) => (
-          <Link key={label} href={href} style={{ fontSize:14, fontWeight:500, color:'var(--text-dim)', transition:'color .15s' }}
-            onMouseEnter={e=>(e.currentTarget.style.color='var(--text)')}
-            onMouseLeave={e=>(e.currentTarget.style.color='var(--text-dim)')}>
-            {label}
+      <div style={{ display:'flex', gap:28, alignItems:'center' }}>
+        {[['Categories','/categories/smartphones-electronics'],['How It Works','/#how'],['About','/#features']].map(([l,h]) => (
+          <Link key={l} href={h} style={{ fontSize:14, fontWeight:500, color:'var(--muted)', transition:'color .15s' }}
+            onMouseEnter={e=>(e.currentTarget.style.color='var(--ink)')}
+            onMouseLeave={e=>(e.currentTarget.style.color='var(--muted)')}>
+            {l}
           </Link>
         ))}
-        <Link href="/search" style={{ background:'var(--saffron)', color:'#fff', fontWeight:600, fontFamily:'Syne,sans-serif', padding:'8px 20px', borderRadius:8, fontSize:14, transition:'background .15s' }}
-          onMouseEnter={e=>(e.currentTarget.style.background='#E55A00')}
-          onMouseLeave={e=>(e.currentTarget.style.background='var(--saffron)')}>
-          Ask AI →
+        <Link href="/search" style={{ background:'var(--blue)', color:'#fff', fontWeight:600, fontSize:14, padding:'7px 18px', borderRadius:8, transition:'background .15s', fontFamily:'Plus Jakarta Sans,sans-serif' }}
+          onMouseEnter={e=>(e.currentTarget.style.background='#1D4ED8')}
+          onMouseLeave={e=>(e.currentTarget.style.background='var(--blue)')}>
+          Ask AI
         </Link>
       </div>
     </nav>
