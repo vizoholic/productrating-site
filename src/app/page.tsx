@@ -3,6 +3,7 @@ import Nav from '@/components/Nav'
 import Hero from '@/components/Hero'
 import SourcesTicker from '@/components/SourcesTicker'
 import ValueProps from '@/components/ValueProps'
+import IndiaSection from '@/components/IndiaSection'
 import TrustSection from '@/components/TrustSection'
 import CategoriesGrid from '@/components/CategoriesGrid'
 import HowItWorks from '@/components/HowItWorks'
@@ -11,8 +12,8 @@ import Footer from '@/components/Footer'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: "ProductRating.in — India's AI Product Intelligence Platform",
-  description: 'Find the best product in 10 seconds. AI-powered ratings from real Indian buyer reviews — fake ratings removed, city-specific insights.',
+  title: "ProductRating.in — Find the Best Product in Seconds",
+  description: 'Ask in your language. AI-powered ratings from real Indian buyer reviews — built on Sarvam AI. No fake reviews, city-specific insights.',
   alternates: { canonical: 'https://productrating.in' },
 }
 
@@ -25,6 +26,7 @@ export default async function HomePage() {
         <Hero />
         <SourcesTicker />
         <ValueProps />
+        <IndiaSection />
         <TrustSection />
         <CategoriesGrid categories={categories} />
         <HowItWorks />
