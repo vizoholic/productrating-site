@@ -13,7 +13,7 @@ import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
   title: "ProductRating.in — Find the Best Product in Seconds",
-  description: 'Ask in your language. AI-powered ratings from real Indian buyer reviews — built on Sarvam AI. No fake reviews, city-specific insights.',
+  description: 'Ask in any Indian language. Powered by Sarvam AI — 22 Indian languages, no fake reviews, city-specific insights.',
   alternates: { canonical: 'https://productrating.in' },
 }
 
