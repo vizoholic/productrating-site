@@ -1,6 +1,6 @@
 'use client'
 export const dynamic = 'force-dynamic'
-import { useState, Suspense } from 'react'
+import { useState, Suspense, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Footer from '@/components/Footer'
@@ -29,7 +29,7 @@ function AiCard({ p, idx }: { p:AiProduct; idx:number }) {
       {p.badge && <span style={{ display:'inline-block', fontSize:11, fontWeight:600, color:'#10B981', background:'#ECFDF5', border:'1px solid #A7F3D0', borderRadius:100, padding:'2px 10px', marginBottom:10 }}>● {p.badge}</span>}
       <div style={{ fontWeight:700, fontSize:15, color:'#111827', lineHeight:1.35, marginBottom:10, paddingRight:idx<3?36:0 }}>{p.name}</div>
       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12, flexWrap:'wrap' }}>
-        <span style={{ fontSize:22, fontWeight:800, color:'#2563EB', fontFamily:'Inter,sans-serif' }}>{p.price}</span>
+        <span style={{ fontSize:22, fontWeight:800, color:'#2563EB' }}>{p.price}</span>
         {p.seller && <span style={{ fontSize:12, color:'#6B7280', background:'#F3F4F6', borderRadius:6, padding:'2px 8px', fontWeight:500 }}>{p.seller}</span>}
       </div>
       {p.rating > 0 && (
@@ -75,13 +75,28 @@ function SerpCard({ p }: { p:SerpProduct }) {
 function SearchResults() {
   const sp = useSearchParams(), router = useRouter()
   const query = sp.get('q') || ''
+
+  const [input, setInput] = useState(query)
   const [loading, setLoading] = useState(false)
   const [called, setCalled] = useState(false)
   const [answer, setAnswer] = useState('')
   const [aiProducts, setAiProducts] = useState<AiProduct[]>([])
   const [serpProducts, setSerpProducts] = useState<SerpProduct[]>([])
   const [related, setRelated] = useState<string[]>([])
-  const [input, setInput] = useState('')
+
+  // Voice state
+  const [recState, setRecState] = useState<'idle'|'recording'|'processing'|'error'>('idle')
+  const [voiceError, setVoiceError] = useState('')
+  const [dots, setDots] = useState(1)
+  const mediaRef = useRef<MediaRecorder|null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const streamRef = useRef<MediaStream|null>(null)
+
+  useEffect(() => {
+    if (recState !== 'recording') return
+    const id = setInterval(() => setDots(d => d >= 3 ? 1 : d + 1), 500)
+    return () => clearInterval(id)
+  }, [recState])
 
   const doSearch = async (q: string) => {
     if (!q.trim()) return
@@ -95,33 +110,163 @@ function SearchResults() {
   }
 
   if (query && !called && !loading) { doSearch(query); setCalled(true) }
-  const submit = () => { const q = input.trim()||query; if (!q) return; if (input.trim()) router.push(`/search?q=${encodeURIComponent(input.trim())}`); doSearch(q) }
+
+  const submit = (q?: string) => {
+    const term = (q || input).trim()
+    if (!term) return
+    router.push(`/search?q=${encodeURIComponent(term)}`)
+    doSearch(term)
+  }
+
+  // Voice handlers
+  const stopRecording = () => {
+    if (mediaRef.current && mediaRef.current.state !== 'inactive') mediaRef.current.stop()
+    if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop())
+    setRecState('processing')
+  }
+
+  const startRecording = async () => {
+    setVoiceError('')
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setRecState('error'); setVoiceError('Voice not supported. Use Chrome.'); return
+    }
+    let stream: MediaStream
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); streamRef.current = stream }
+    catch { setRecState('error'); setVoiceError('Mic access denied. Allow mic in browser settings.'); return }
+
+    const mimes = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg']
+    const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || ''
+    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+    mediaRef.current = rec; chunksRef.current = []
+
+    rec.ondataavailable = e => { if (e.data?.size > 0) chunksRef.current.push(e.data) }
+    rec.onstop = async () => {
+      const total = chunksRef.current.reduce((s,c) => s+c.size, 0)
+      if (total === 0) { setRecState('error'); setVoiceError('No audio captured. Speak louder.'); return }
+
+      const blobType = mime ? mime.split(';')[0] : 'audio/webm'
+      const ext = blobType.includes('ogg') ? 'ogg' : 'webm'
+      const blob = new Blob(chunksRef.current, { type: blobType })
+      const form = new FormData()
+      form.append('file', blob, `rec.${ext}`)
+
+      try {
+        const res = await fetch('/api/ask', { method:'POST', body: form })
+        const data = await res.json()
+        if (data.transcript) {
+          setInput(data.transcript)
+          setRecState('idle')
+          submit(data.transcript)
+        } else {
+          setRecState('error')
+          setVoiceError(data.error || 'Could not understand. Try again.')
+        }
+      } catch { setRecState('error'); setVoiceError('Network error. Try again.') }
+    }
+    rec.start(250); setRecState('recording')
+  }
+
+  const toggleMic = () => {
+    if (recState === 'recording') stopRecording()
+    else startRecording()
+  }
+
+  const isRecording = recState === 'recording'
+  const isProcessing = recState === 'processing'
+  const isBusy = isRecording || isProcessing
 
   return (
     <div style={{ maxWidth:920, margin:'0 auto', padding:'68px clamp(12px,4vw,20px) 60px' }}>
-      {/* Search bar */}
-      <div style={{ display:'flex', gap:8, marginBottom:28 }}>
-        <div style={{ flex:1, display:'flex', alignItems:'center', gap:10, background:'#fff', border:'1.5px solid #D1D5DB', borderRadius:10, padding:'5px 5px 5px 14px', boxShadow:'0 1px 4px rgba(0,0,0,0.06)', minWidth:0 }}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink:0 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-          <input defaultValue={query} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} placeholder="Search any product..." style={{ flex:1, border:'none', outline:'none', fontSize:16, color:'#111827', background:'none', fontFamily:'Inter,sans-serif', padding:'10px 0', minWidth:0 }} />
+
+      {/* ── SEARCH BAR WITH MIC ── */}
+      <div style={{ marginBottom:28 }}>
+        <div style={{
+          display:'flex', alignItems:'center', gap:6,
+          background:'#fff', borderRadius:12, padding:'5px 5px 5px 14px',
+          border:`1.5px solid ${isRecording ? '#EF4444' : '#D1D5DB'}`,
+          boxShadow: isRecording ? '0 0 0 3px rgba(239,68,68,0.1)' : '0 1px 4px rgba(0,0,0,0.06)',
+          transition:'all .2s',
+        }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink:0 }}>
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+
+          <input
+            value={isRecording ? ('Listening' + '.'.repeat(dots)) : isProcessing ? 'Transcribing...' : input}
+            onChange={e => { if (!isBusy) setInput(e.target.value) }}
+            onKeyDown={e => e.key === 'Enter' && !isBusy && submit()}
+            placeholder="Search any product..."
+            readOnly={isBusy}
+            style={{ flex:1, border:'none', outline:'none', fontSize:16, color: isRecording ? '#EF4444' : '#111827', background:'none', fontFamily:'Inter,sans-serif', padding:'10px 0', minWidth:0 }}
+          />
+
+          {/* Mic button */}
+          <button
+            onClick={toggleMic}
+            disabled={isProcessing}
+            title={isRecording ? 'Stop recording' : 'Voice search — 22 Indian languages'}
+            style={{
+              width:40, height:40, borderRadius:8, border:'none', flexShrink:0,
+              background: isRecording ? '#EF4444' : '#F3F4F6',
+              cursor: isProcessing ? 'not-allowed' : 'pointer',
+              display:'flex', alignItems:'center', justifyContent:'center',
+              transition:'all .2s',
+              animation: isRecording ? 'mic-pulse 1s ease infinite' : 'none',
+            }}>
+            {isProcessing ? (
+              <div style={{ width:14, height:14, border:'2px solid #D1D5DB', borderTopColor:'#2563EB', borderRadius:'50%', animation:'spin .7s linear infinite' }} />
+            ) : isRecording ? (
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            ) : (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round">
+                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                <line x1="12" y1="19" x2="12" y2="23"/>
+                <line x1="8" y1="23" x2="16" y2="23"/>
+              </svg>
+            )}
+          </button>
+
+          <button onClick={() => submit()} disabled={!input.trim() || isBusy}
+            style={{ padding:'0 18px', height:40, borderRadius:8, background:'#2563EB', color:'#fff', fontWeight:600, border:'none', cursor:'pointer', fontSize:14, transition:'background .15s', whiteSpace:'nowrap', flexShrink:0, opacity:input.trim()&&!isBusy?1:0.5 }}
+            onMouseEnter={e=>{if(input.trim())(e.currentTarget.style.background='#1D4ED8')}}
+            onMouseLeave={e=>(e.currentTarget.style.background='#2563EB')}>
+            Search
+          </button>
         </div>
-        <button onClick={submit} style={{ padding:'0 18px', borderRadius:10, background:'#2563EB', color:'#fff', fontWeight:600, border:'none', cursor:'pointer', fontSize:14, transition:'background .15s', whiteSpace:'nowrap', flexShrink:0 }}
-          onMouseEnter={e=>(e.currentTarget.style.background='#1D4ED8')} onMouseLeave={e=>(e.currentTarget.style.background='#2563EB')}>
-          Search
-        </button>
+
+        {/* Voice status */}
+        {isRecording && (
+          <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6, fontSize:13, color:'#EF4444', fontWeight:500 }}>
+            <span style={{ width:7, height:7, borderRadius:'50%', background:'#EF4444', display:'inline-block', animation:'blink 1s infinite' }} />
+            Recording... tap stop when done · Speak in any Indian language
+          </div>
+        )}
+        {isProcessing && <p style={{ marginTop:8, fontSize:13, color:'#6B7280' }}>Transcribing with Sarvam AI...</p>}
+        {recState === 'error' && voiceError && (
+          <div style={{ marginTop:8, fontSize:13, color:'#EF4444', background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:6, padding:'6px 12px' }}>⚠️ {voiceError}</div>
+        )}
+
+        <style>{`
+          @keyframes mic-pulse{0%,100%{box-shadow:0 0 0 3px rgba(239,68,68,0.25)}50%{box-shadow:0 0 0 6px rgba(239,68,68,0.08)}}
+          @keyframes spin{to{transform:rotate(360deg)}}
+          @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+          @keyframes analyzing-dot{0%,80%,100%{transform:scale(0.6);opacity:0.4}40%{transform:scale(1);opacity:1}}
+        `}</style>
       </div>
 
+      {/* Loading */}
       {loading && (
         <div style={{ textAlign:'center', padding:'60px 0' }}>
           <div style={{ fontSize:14, color:'#6B7280', fontWeight:500, marginBottom:16 }}>Analyzing reviews across India&apos;s platforms...</div>
           <div style={{ display:'flex', gap:8, justifyContent:'center' }}>
             {[0,1,2].map(i=><div key={i} style={{ width:10, height:10, borderRadius:'50%', background:'#2563EB', animation:`analyzing-dot 1.2s ${i*0.2}s infinite ease-in-out` }} />)}
           </div>
-          <div style={{ marginTop:12, fontSize:12, color:'#9CA3AF' }}>Removing fake reviews · City-specific data · Computing PR Score</div>
-          <style>{`@keyframes analyzing-dot{0%,80%,100%{transform:scale(0.6);opacity:0.4}40%{transform:scale(1);opacity:1}}`}</style>
+          <div style={{ marginTop:12, fontSize:12, color:'#9CA3AF' }}>Removing fake reviews · City data · Computing PR Score</div>
         </div>
       )}
 
+      {/* Results */}
       {!loading && answer && (
         <div>
           <div style={{ marginBottom:20, paddingBottom:16, borderBottom:'1px solid #E5E7EB' }}>
@@ -129,7 +274,6 @@ function SearchResults() {
             <h1 style={{ fontFamily:'Plus Jakarta Sans,sans-serif', fontSize:'clamp(18px,3vw,22px)', fontWeight:800, color:'#111827', letterSpacing:'-0.5px' }}>{query||input}</h1>
           </div>
 
-          {/* AI Answer */}
           <div style={{ background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:10, padding:'16px 20px', marginBottom:24 }}>
             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
               <span style={{ fontSize:16 }}>🤖</span>
@@ -167,7 +311,7 @@ function SearchResults() {
               <div style={{ fontSize:12, color:'#9CA3AF', fontWeight:600, marginBottom:10, textTransform:'uppercase', letterSpacing:'1px' }}>Related Searches</div>
               <div style={{ display:'flex', flexWrap:'wrap', gap:8 }}>
                 {related.map((r,i)=>(
-                  <button key={i} onClick={()=>{router.push(`/search?q=${encodeURIComponent(r)}`);doSearch(r)}} style={{ padding:'7px 14px', borderRadius:100, background:'#F9FAFB', border:'1px solid #E5E7EB', color:'#374151', fontSize:13, cursor:'pointer', fontWeight:500, transition:'all .15s' }}
+                  <button key={i} onClick={()=>submit(r)} style={{ padding:'7px 14px', borderRadius:100, background:'#F9FAFB', border:'1px solid #E5E7EB', color:'#374151', fontSize:13, cursor:'pointer', fontWeight:500, transition:'all .15s' }}
                     onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor='#2563EB';(e.currentTarget as HTMLButtonElement).style.color='#2563EB'}}
                     onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor='#E5E7EB';(e.currentTarget as HTMLButtonElement).style.color='#374151'}}>
                     {r}
@@ -183,7 +327,7 @@ function SearchResults() {
         <div style={{ textAlign:'center', padding:'60px 0' }}>
           <div style={{ width:52, height:52, background:'#EFF6FF', borderRadius:14, display:'flex', alignItems:'center', justifyContent:'center', fontSize:22, margin:'0 auto 14px' }}>🔍</div>
           <div style={{ fontSize:16, fontWeight:600, color:'#374151', marginBottom:6 }}>Ask anything about any product</div>
-          <div style={{ fontSize:14, color:'#9CA3AF' }}>Try "Best AC for Delhi under ₹40,000" or ask in Hindi</div>
+          <div style={{ fontSize:14, color:'#9CA3AF' }}>Type or tap 🎙️ to speak in any Indian language</div>
         </div>
       )}
     </div>
