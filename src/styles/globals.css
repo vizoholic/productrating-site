@@ -1,14 +1,11 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
-  /* Primary — Trust blue */
   --blue: #2563EB;
   --blue-light: #EFF6FF;
   --blue-mid: #BFDBFE;
-  /* Signal — Green for positive data */
   --green: #10B981;
   --green-light: #ECFDF5;
-  /* Neutral scale */
   --ink: #111827;
   --ink-2: #374151;
   --muted: #6B7280;
@@ -18,38 +15,36 @@
   --bg: #FFFFFF;
   --bg-2: #F9FAFB;
   --bg-3: #F3F4F6;
-  /* Accent — kept minimal */
-  --orange: #F97316;
-  --orange-light: #FFF7ED;
   --red: #EF4444;
   --red-light: #FEF2F2;
-  /* Shadows */
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.05);
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
   --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
-  --shadow-lg: 0 12px 32px rgba(0,0,0,0.1), 0 4px 8px rgba(0,0,0,0.04);
 }
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg);
   color: var(--ink);
   -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
   font-size: 16px;
   line-height: 1.5;
+  width: 100%;
+  max-width: 100vw;
 }
-
 h1, h2, h3, h4 { font-family: 'Plus Jakarta Sans', sans-serif; }
-
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg-2); }
 ::-webkit-scrollbar-thumb { background: var(--blue); border-radius: 2px; }
-
 a { color: inherit; text-decoration: none; }
+img { max-width: 100%; display: block; }
+input, button { font-family: inherit; }
+
+/* Prevent horizontal overflow everywhere */
+section, div, nav, footer, main { max-width: 100%; }
 
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(12px); }
@@ -58,3 +53,16 @@ a { color: inherit; text-decoration: none; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 @keyframes ticker { from { transform: translateX(0); } to { transform: translateX(-50%); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes mic-pulse {
+  0%,100% { box-shadow: 0 0 0 3px rgba(239,68,68,0.25); }
+  50%     { box-shadow: 0 0 0 7px rgba(239,68,68,0.08); }
+}
+@keyframes analyzing-dot {
+  0%,80%,100% { transform: scale(0.6); opacity: 0.4; }
+  40%         { transform: scale(1); opacity: 1; }
+}
+
+/* Mobile overrides */
+@media (max-width: 768px) {
+  body { font-size: 16px; }
+}
