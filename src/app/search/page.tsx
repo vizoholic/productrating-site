@@ -6,7 +6,7 @@ import Nav from '@/components/Nav'
 import Footer from '@/components/Footer'
 import { detectLocation, getCachedLocation, cacheLocation, type LocationData } from '@/lib/useLocation'
 
-type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; city_note:string; pros:string[]; cons:string[]; avoid_if:string }
+type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; pros:string[]; cons:string[]; avoid_if:string }
 type SerpProduct = { title:string; price:string; rating:number|null; source:string; link:string; thumbnail:string; delivery:string }
 
 function getDirectUrl(seller: string, name: string): string {
@@ -159,12 +159,7 @@ function AiCard({ p, idx }: { p:AiProduct; idx:number }) {
 
         {/* One-line reason */}
         {p.reason && <p style={{ fontSize:13, color:'#374151', lineHeight:1.6, marginBottom:12 }}>{p.reason}</p>}
-        {p.city_note && (
-          <div style={{ display:'flex', alignItems:'flex-start', gap:6, marginBottom:12, background:'#EFF6FF', borderRadius:8, padding:'8px 12px' }}>
-            <span style={{ fontSize:14, flexShrink:0 }}>📍</span>
-            <span style={{ fontSize:12, color:'#2563EB', fontWeight:500, lineHeight:1.5 }}>{p.city_note}</span>
-          </div>
-        )}
+
 
         {/* Pros / Cons / Avoid — expandable */}
         {(p.pros?.length > 0 || p.cons?.length > 0 || p.avoid_if) && (
@@ -365,9 +360,9 @@ function SearchResults() {
           </div>
         )}
         {location && (
-          <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:100, padding:'5px 14px', fontSize:13, fontWeight:600, color:'#2563EB' }}>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:100, padding:'5px 14px', fontSize:13, fontWeight:600, color:'#2563EB' }} title="Results personalised for your location">
             <span>📍</span>
-            <span>Results personalised for {location.display || location.city || location.state}</span>
+            <span>📍 {location.display || location.city || location.state}</span>
             <button onClick={() => { setLocation(null); setLocationError(''); sessionStorage.removeItem('pr_location') }}
               style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:12, padding:0, marginLeft:4, lineHeight:1 }} title="Clear location">✕</button>
           </div>
@@ -402,7 +397,7 @@ function SearchResults() {
           <div style={{marginBottom:20,paddingBottom:16,borderBottom:'1px solid #E5E7EB'}}>
             <div style={{fontSize:12,color:'#9CA3AF',marginBottom:6,textTransform:'uppercase',letterSpacing:'1px',fontWeight:600}}>Results for</div>
             <h1 style={{fontFamily:'Plus Jakarta Sans,sans-serif',fontSize:'clamp(18px,3vw,24px)',fontWeight:800,color:'#111827',letterSpacing:'-0.5px'}}>{query||input}</h1>
-            {location && <span style={{fontSize:12,color:'#2563EB',fontWeight:500,marginTop:4,display:'block'}}>📍 Personalised for {location.display}</span>}
+
           </div>
 
           {/* AI Answer */}
@@ -418,8 +413,8 @@ function SearchResults() {
           {aiProducts.length>0&&(
             <div style={{marginBottom:40}}>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:18,flexWrap:'wrap'}}>
-                <span style={{fontSize:17,fontWeight:800,color:'#111827'}}>Top Recommendations</span>
-                <span style={{fontSize:12,color:'#6B7280',background:'#F3F4F6',borderRadius:100,padding:'3px 12px',border:'1px solid #E5E7EB'}}>AI Score vs Platform Rating · All out of 5</span>
+                <span style={{fontSize:17,fontWeight:800,color:'#111827'}}>Top 3 Recommendations</span>
+                <span style={{fontSize:12,color:'#6B7280',background:'#F3F4F6',borderRadius:100,padding:'3px 12px',border:'1px solid #E5E7EB'}}>Ranked by AI Score · All out of 5</span>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(min(100%,300px),1fr))',gap:16}}>
                 {aiProducts.map((p,i)=><AiCard key={i} p={p} idx={i}/>)}
