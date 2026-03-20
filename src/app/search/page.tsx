@@ -9,19 +9,80 @@ type AiProduct = { name:string; price:string; seller:string; rating:number; plat
 type SerpProduct = { title:string; price:string; rating:number|null; source:string; link:string; thumbnail:string; delivery:string }
 
 function getDirectUrl(seller: string, name: string): string {
-  const q = encodeURIComponent(name), s=(seller||'').toLowerCase()
-  if (s.includes('amazon'))   return `https://www.amazon.in/s?k=${q}`
-  if (s.includes('flipkart')) return `https://www.flipkart.com/search?q=${q}`
-  if (s.includes('nykaa'))    return `https://www.nykaa.com/search/result/?q=${q}`
-  if (s.includes('meesho'))   return `https://www.meesho.com/search?q=${q}`
-  if (s.includes('croma'))    return `https://www.croma.com/searchB?q=${q}`
-  if (s.includes('jiomart'))  return `https://www.jiomart.com/search/${q}`
-  if (s.includes('myntra'))   return `https://www.myntra.com/${q}`
-  if (s.includes('tata'))     return `https://www.tatacliq.com/search/?searchCategory=all&text=${q}`
-  if (s.includes('reliance')) return `https://www.reliancedigital.in/search?q=${q}`
-  if (s.includes('vijay'))    return `https://www.vijaysales.com/search/${q}`
+  const q = encodeURIComponent(name)
+  const s = (seller || '').toLowerCase().trim()
+
+  // 1. Known major platforms — exact search URL patterns
+  const known: [string[], (q:string)=>string][] = [
+    [['amazon.in','amazon'],      q=>`https://www.amazon.in/s?k=${q}`],
+    [['flipkart'],                q=>`https://www.flipkart.com/search?q=${q}`],
+    [['nykaa'],                   q=>`https://www.nykaa.com/search/result/?q=${q}`],
+    [['meesho'],                  q=>`https://www.meesho.com/search?q=${q}`],
+    [['croma'],                   q=>`https://www.croma.com/searchB?q=${q}`],
+    [['jiomart'],                 q=>`https://www.jiomart.com/search/${q}`],
+    [['myntra'],                  q=>`https://www.myntra.com/${q}`],
+    [['tata cliq','tatacliq'],    q=>`https://www.tatacliq.com/search/?searchCategory=all&text=${q}`],
+    [['reliance digital','reliancedigital'], q=>`https://www.reliancedigital.in/search?q=${q}`],
+    [['vijay sales','vijaysales'],q=>`https://www.vijaysales.com/search/${q}`],
+    [['bigbasket'],               q=>`https://www.bigbasket.com/ps/?q=${q}`],
+    [['blinkit'],                 q=>`https://blinkit.com/s/?q=${q}`],
+    [['snapdeal'],                q=>`https://www.snapdeal.com/search?keyword=${q}`],
+    [['paytm'],                   q=>`https://paytmmall.com/shop/search?q=${q}`],
+    [['shopclues'],               q=>`https://www.shopclues.com/search?q=${q}`],
+    [['infibeam'],                q=>`https://www.infibeam.com/search?q=${q}`],
+    [['samsung'],                 q=>`https://www.samsung.com/in/search/?searchvalue=${q}`],
+    [['mi store','xiaomi'],       q=>`https://www.mi.com/in/search#${q}`],
+    [['boat lifestyle','boat-lifestyle'], q=>`https://www.boat-lifestyle.com/search?q=${q}`],
+    [['noise','gonoise'],         q=>`https://www.gonoise.com/search?q=${q}`],
+    [['ajio'],                    q=>`https://www.ajio.com/search/?text=${q}`],
+    [['bewakoof'],                q=>`https://www.bewakoof.com/search?q=${q}`],
+    [['pepperfry'],               q=>`https://www.pepperfry.com/site-search.html#q=${q}`],
+    [['urban ladder','urbanladder'], q=>`https://www.urbanladder.com/search?q=${q}`],
+    [['1mg','tata 1mg'],          q=>`https://www.1mg.com/search/all?name=${q}`],
+    [['netmeds'],                 q=>`https://www.netmeds.com/catalogsearch/result?q=${q}`],
+    [['pharmeasy'],               q=>`https://pharmeasy.in/search/all?name=${q}`],
+    [['decathlon'],               q=>`https://www.decathlon.in/search?Ntt=${q}`],
+  ]
+  for (const [keys, fn] of known) {
+    if (keys.some(k => s.includes(k))) return fn(q)
+  }
+
+  // 2. Seller string contains a domain (e.g. "bigbasket.com", "cayroshop.com")
+  //    → strip www/http, take the domain, build https://www.domain/search?q=
+  const domainMatch = s.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9][a-z0-9-]*\.[a-z]{2,}(?:\.[a-z]{2,})?)/)
+  if (domainMatch) {
+    const domain = domainMatch[1]
+    // Don't send to google.com/amazon.com etc accidentally
+    const blocked = ['google.com','google.co.in','goo.gl']
+    if (!blocked.some(b => domain.includes(b))) {
+      return `https://www.${domain}/search?q=${q}`
+    }
+  }
+
+  // 3. Unknown seller name — Google search scoped to that seller's likely domain
+  if (s.length > 2 && !s.includes('google')) {
+    const slug = s.replace(/[^a-z0-9]/g, '')
+    if (slug.length > 2) {
+      return `https://www.google.com/search?q=${q}+buy+${encodeURIComponent(seller)}`
+    }
+  }
+
+  // 4. Final fallback
   return `https://www.amazon.in/s?k=${q}`
 }
+// Extract clean display name from seller string
+function getSellerDisplayName(seller: string): string {
+  if (!seller) return 'Amazon'
+  const s = seller.trim()
+  // If it already looks clean (no .com), capitalise first letter
+  if (!s.includes('.')) {
+    return s.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  }
+  // Has a domain — return it as-is (e.g. "bigbasket.com")
+  return s.replace(/^https?:\/\/(www\.)?/i, '').replace(/\/.*$/, '')
+}
+
+
 
 function AiCard({ p, idx }: { p:AiProduct; idx:number }) {
   const [open, setOpen] = useState(false)
@@ -140,7 +201,7 @@ function AiCard({ p, idx }: { p:AiProduct; idx:number }) {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
           <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>
         </svg>
-        Search on {p.seller || 'Amazon'}
+        Search on {getSellerDisplayName(p.seller)}
       </a>
     </div>
   )
@@ -168,7 +229,7 @@ function SerpCard({ p }: { p:SerpProduct }) {
         </div>
       </div>
       <div style={{ padding:'9px 14px', background:'#EFF6FF', borderTop:'1px solid #BFDBFE', display:'flex', justifyContent:'space-between' }}>
-        <span style={{ fontSize:12, color:'#2563EB', fontWeight:500 }}>Search on {p.source||'store'}</span>
+        <span style={{ fontSize:12, color:'#2563EB', fontWeight:500 }}>Search on {getSellerDisplayName(p.source)}</span>
         <span style={{ fontSize:13, color:'#2563EB', fontWeight:700 }}>Buy now ↗</span>
       </div>
     </a>
