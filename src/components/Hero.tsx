@@ -3,28 +3,29 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 
 const EXAMPLES = [
-  'Delhi mein best AC kaunsa hai?',
-  '₹20,000 ke andar best phone',
-  'Best fridge for small family',
+  { label: 'Best AC for Delhi heat', q: 'Best AC for Delhi under ₹40,000' },
+  { label: '₹20K best phone', q: '₹20,000 ke andar best phone' },
+  { label: 'Best washing machine', q: 'Best washing machine for hard water India' },
 ]
 
-const LANGS = ['हिंदी','தமிழ்','తెలుగు','বাংলা','मराठी','ಕನ್ನಡ','English','+15 more']
+const LANGS = ['हिंदी','English','தமிழ்','తెలుగు','বাংলা','ಕನ್ನಡ','+16 more']
 
 export default function Hero() {
   const [query, setQuery] = useState('')
   const [focused, setFocused] = useState(false)
   const [recState, setRecState] = useState<'idle'|'recording'|'processing'|'error'>('idle')
-  const [statusMsg, setStatusMsg] = useState('')
+  const [voiceStatus, setVoiceStatus] = useState('')
+  const [detectedLang, setDetectedLang] = useState('')
   const [transcript, setTranscript] = useState('')
   const [dots, setDots] = useState(1)
-  const mediaRef = useRef<MediaRecorder | null>(null)
+  const mediaRef = useRef<MediaRecorder|null>(null)
   const chunksRef = useRef<Blob[]>([])
-  const streamRef = useRef<MediaStream | null>(null)
+  const streamRef = useRef<MediaStream|null>(null)
   const router = useRouter()
 
   useEffect(() => {
     if (recState !== 'recording') return
-    const id = setInterval(() => setDots(d => d >= 3 ? 1 : d + 1), 500)
+    const id = setInterval(() => setDots(d => d >= 3 ? 1 : d + 1), 450)
     return () => clearInterval(id)
   }, [recState])
 
@@ -33,259 +34,197 @@ export default function Hero() {
     if (t) router.push(`/search?q=${encodeURIComponent(t)}`)
   }
 
-  const stopRecording = () => {
-    if (mediaRef.current && mediaRef.current.state !== 'inactive') {
-      mediaRef.current.stop()
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop())
-    }
+  const stopRec = () => {
+    if (mediaRef.current?.state !== 'inactive') mediaRef.current?.stop()
+    streamRef.current?.getTracks().forEach(t => t.stop())
     setRecState('processing')
-    setStatusMsg('Transcribing...')
+    setVoiceStatus('Transcribing your voice...')
   }
 
-  const startRecording = async () => {
-    setTranscript('')
-    setStatusMsg('')
-
-    // Check browser support
+  const startRec = async () => {
+    setTranscript(''); setDetectedLang(''); setVoiceStatus('')
     if (!navigator.mediaDevices?.getUserMedia) {
-      setRecState('error')
-      setStatusMsg('Voice not supported in this browser. Use Chrome on mobile.')
-      return
+      setRecState('error'); setVoiceStatus('Voice not supported. Please use Chrome.'); return
     }
-
     let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-    } catch (e) {
-      setRecState('error')
-      setStatusMsg('Microphone access denied. Allow mic in browser settings.')
-      return
-    }
+    try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); streamRef.current = stream }
+    catch { setRecState('error'); setVoiceStatus('Microphone denied. Allow mic in browser settings.'); return }
 
-    // Find best supported MIME type
-    const mimes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4']
+    const mimes = ['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg']
     const mime = mimes.find(m => MediaRecorder.isTypeSupported(m)) || ''
-    console.log('[Voice] Using MIME:', mime || 'browser default')
-
-    let rec: MediaRecorder
-    try {
-      rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
-    } catch (e) {
-      setRecState('error')
-      setStatusMsg('Could not start recorder. Try Chrome browser.')
-      stream.getTracks().forEach(t => t.stop())
-      return
-    }
-
-    mediaRef.current = rec
-    chunksRef.current = []
-
-    rec.ondataavailable = (e) => {
-      if (e.data && e.data.size > 0) chunksRef.current.push(e.data)
-    }
-
+    const rec = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream)
+    mediaRef.current = rec; chunksRef.current = []
+    rec.ondataavailable = e => { if (e.data?.size > 0) chunksRef.current.push(e.data) }
     rec.onstop = async () => {
-      const chunks = chunksRef.current
-      const totalSize = chunks.reduce((s, c) => s + c.size, 0)
-      console.log(`[Voice] Chunks: ${chunks.length}, Total: ${totalSize} bytes`)
-
-      if (totalSize === 0) {
-        setRecState('error')
-        setStatusMsg('No audio captured. Speak louder or check mic.')
-        return
-      }
-
-      const blobType = mime ? mime.split(';')[0] : 'audio/webm'
-      const ext = blobType.includes('ogg') ? 'ogg' : blobType.includes('mp4') ? 'mp4' : 'webm'
-      const blob = new Blob(chunks, { type: blobType })
-
-      console.log(`[Voice] Blob: ${blob.size}B, type=${blobType}, ext=${ext}`)
-
+      const total = chunksRef.current.reduce((s,c) => s+c.size, 0)
+      if (total === 0) { setRecState('error'); setVoiceStatus('No audio. Speak louder and try again.'); return }
+      const bt = mime ? mime.split(';')[0] : 'audio/webm'
+      const blob = new Blob(chunksRef.current, { type: bt })
       const form = new FormData()
-      form.append('file', blob, `recording.${ext}`)
-
+      form.append('file', blob, `rec.${bt.includes('ogg')?'ogg':'webm'}`)
       try {
         const res = await fetch('/api/ask', { method: 'POST', body: form })
         const data = await res.json()
-
-        if (!res.ok) {
-          console.error('[Voice] API error:', data)
-          setRecState('error')
-          setStatusMsg(data.error || `Server error ${res.status}`)
-          return
-        }
-
         if (data.transcript) {
           setTranscript(data.transcript)
+          setDetectedLang(data.detectedLanguage || '')
           setQuery(data.transcript)
           setRecState('idle')
-          setStatusMsg('')
+          setVoiceStatus('')
         } else {
           setRecState('error')
-          setStatusMsg(data.error || 'Could not understand. Speak clearly and try again.')
+          setVoiceStatus(data.error || 'Could not understand. Please try again.')
         }
-      } catch (e) {
-        console.error('[Voice] Fetch error:', e)
-        setRecState('error')
-        setStatusMsg('Network error. Check connection and try again.')
-      }
+      } catch { setRecState('error'); setVoiceStatus('Network error. Try again.') }
     }
-
-    rec.onerror = (e) => {
-      console.error('[Voice] MediaRecorder error:', e)
-      setRecState('error')
-      setStatusMsg('Recording error. Try again.')
-    }
-
-    rec.start(250)
-    setRecState('recording')
-    setStatusMsg('')
+    rec.start(200); setRecState('recording')
+    setVoiceStatus('Listening' + '.'.repeat(dots))
   }
 
-  const toggleMic = () => {
-    if (recState === 'recording') stopRecording()
-    else if (recState === 'idle' || recState === 'error') startRecording()
-  }
-
-  const isRecording = recState === 'recording'
-  const isProcessing = recState === 'processing'
-  const isError = recState === 'error'
-  const isBusy = isRecording || isProcessing
+  const toggleMic = () => recState === 'recording' ? stopRec() : startRec()
+  const isRec = recState === 'recording'
+  const isProc = recState === 'processing'
+  const isBusy = isRec || isProc
 
   return (
     <section style={{
-      minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-      padding:'clamp(88px,12vw,120px) clamp(16px,5vw,24px) clamp(48px,6vw,60px)',
-      background:'#fff', textAlign:'center', position:'relative', overflow:'hidden',
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      padding: 'clamp(80px,10vw,100px) clamp(16px,5vw,24px) clamp(40px,5vw,60px)',
+      background: '#fff', textAlign: 'center', position: 'relative', overflow: 'hidden',
     }}>
-      <div style={{ position:'absolute', inset:0, backgroundImage:'radial-gradient(#2563EB08 1px, transparent 1px)', backgroundSize:'28px 28px', pointerEvents:'none' }} />
+      <div style={{ position:'absolute', inset:0, backgroundImage:'radial-gradient(#2563EB07 1px, transparent 1px)', backgroundSize:'28px 28px', pointerEvents:'none' }} />
 
       {/* Badge */}
-      <div style={{ display:'inline-flex', alignItems:'center', gap:7, background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:100, padding:'5px 14px', marginBottom:20, fontSize:12, fontWeight:600, color:'#2563EB', animation:'fade-up .4s ease both' }}>
-        <span style={{ width:6, height:6, borderRadius:'50%', background:'#2563EB', animation:'blink 2s infinite', display:'inline-block' }} />
-        Powered by Sarvam AI — India&apos;s own LLM
+      <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:100, padding:'5px 16px', marginBottom:20, fontSize:12, fontWeight:600, color:'#2563EB', animation:'fade-up .4s ease both' }}>
+        <span style={{ width:6, height:6, borderRadius:'50%', background:'#2563EB', display:'inline-block', animation:'blink 2s infinite' }} />
+        Powered by Sarvam AI — India&apos;s own LLM · 22 languages
       </div>
 
-      {/* H1 */}
-      <h1 style={{ fontSize:'clamp(32px,6vw,56px)', fontWeight:800, lineHeight:1.08, letterSpacing:'-1.5px', color:'#111827', maxWidth:700, marginBottom:12, animation:'fade-up .4s .06s ease both', opacity:0, animationFillMode:'forwards' }}>
+      {/* H1 — tight, dominant */}
+      <h1 style={{ fontSize:'clamp(32px,6vw,60px)', fontWeight:800, lineHeight:1.05, letterSpacing:'-2px', color:'#111827', maxWidth:700, marginBottom:12, animation:'fade-up .4s .05s ease both', opacity:0, animationFillMode:'forwards' }}>
         Find the best product<br /><span style={{ color:'#2563EB' }}>in seconds.</span>
       </h1>
 
-      <p style={{ fontSize:'clamp(15px,2vw,17px)', color:'#6B7280', maxWidth:460, lineHeight:1.6, marginBottom:32, animation:'fade-up .4s .12s ease both', opacity:0, animationFillMode:'forwards' }}>
-        Ask in your language. Built on India&apos;s LLM (Sarvam AI).<br />No fake reviews. City-specific insights.
+      <p style={{ fontSize:'clamp(15px,2vw,17px)', color:'#6B7280', maxWidth:440, lineHeight:1.6, marginBottom:36, animation:'fade-up .4s .1s ease both', opacity:0, animationFillMode:'forwards' }}>
+        Ask in your language. We remove fake reviews and show you the real score — not what Amazon wants you to see.
       </p>
 
-      {/* ── SEARCH BAR ── */}
-      <div style={{ width:'100%', maxWidth:660, animation:'fade-up .4s .18s ease both', opacity:0, animationFillMode:'forwards' }}>
+      {/* ── SEARCH BAR — THE HERO ── */}
+      <div style={{ width:'100%', maxWidth:680, animation:'fade-up .4s .15s ease both', opacity:0, animationFillMode:'forwards' }}>
         <div style={{
           display:'flex', alignItems:'center', gap:6,
-          background:'#fff', borderRadius:14, padding:'5px 5px 5px 16px',
-          border:`2px solid ${isError ? '#EF4444' : isRecording ? '#EF4444' : focused ? '#2563EB' : '#E5E7EB'}`,
-          boxShadow: isRecording ? '0 0 0 4px rgba(239,68,68,0.1)' : focused ? '0 0 0 4px rgba(37,99,235,0.1)' : '0 2px 12px rgba(0,0,0,0.06)',
-          transition:'all .2s',
+          background:'#fff', borderRadius:16, padding:'6px 6px 6px 18px',
+          border:`2px solid ${isRec ? '#EF4444' : focused ? '#2563EB' : '#E5E7EB'}`,
+          boxShadow: isRec ? '0 0 0 5px rgba(239,68,68,0.1), 0 4px 24px rgba(0,0,0,0.08)' : focused ? '0 0 0 5px rgba(37,99,235,0.1), 0 4px 24px rgba(0,0,0,0.08)' : '0 4px 20px rgba(0,0,0,0.07)',
+          transition: 'all .2s',
         }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={focused ? '#2563EB' : '#9CA3AF'} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink:0 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={focused||isRec?'#2563EB':'#9CA3AF'} strokeWidth="2.5" strokeLinecap="round" style={{ flexShrink:0, transition:'stroke .2s' }}>
             <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
           </svg>
 
           <input
-            value={isRecording ? ('Listening' + '.'.repeat(dots)) : isProcessing ? 'Transcribing your voice...' : query}
+            value={isRec ? ('Listening' + '.'.repeat(dots)) : isProc ? 'Transcribing your voice...' : query}
             onChange={e => { if (!isBusy) setQuery(e.target.value) }}
             onKeyDown={e => e.key === 'Enter' && !isBusy && go()}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             placeholder="Best AC for Delhi under ₹40,000?"
             readOnly={isBusy}
-            style={{ flex:1, border:'none', outline:'none', fontSize:16, color: isRecording ? '#EF4444' : '#111827', background:'none', fontFamily:'Inter,sans-serif', padding:'11px 0', minWidth:0 }}
+            style={{ flex:1, border:'none', outline:'none', fontSize:17, color: isRec ? '#EF4444' : '#111827', background:'none', fontFamily:'Inter,sans-serif', padding:'13px 0', minWidth:0, fontWeight: isRec ? 500 : 400 }}
           />
 
-          {/* Mic button */}
-          <button
-            onClick={toggleMic}
-            disabled={isProcessing}
-            title={isRecording ? 'Stop recording' : 'Speak in any Indian language'}
+          {/* Mic button — prominent */}
+          <button onClick={toggleMic} disabled={isProc}
+            title="Speak in any Indian language"
             style={{
-              width:42, height:42, borderRadius:10, border:'none', flexShrink:0, cursor: isProcessing ? 'not-allowed' : 'pointer',
-              background: isRecording ? '#EF4444' : isError ? '#FEF2F2' : '#F3F4F6',
-              display:'flex', alignItems:'center', justifyContent:'center', transition:'all .2s',
-              animation: isRecording ? 'mic-pulse 1s ease infinite' : 'none',
-            }}>
-            {isProcessing ? (
-              <div style={{ width:16, height:16, border:'2px solid #D1D5DB', borderTopColor:'#2563EB', borderRadius:'50%', animation:'spin .7s linear infinite' }} />
-            ) : isRecording ? (
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isError ? '#EF4444' : '#6B7280'} strokeWidth="2" strokeLinecap="round">
-                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                <line x1="12" y1="19" x2="12" y2="23"/>
-                <line x1="8" y1="23" x2="16" y2="23"/>
-              </svg>
-            )}
+              width:46, height:46, borderRadius:12, border:'none', flexShrink:0,
+              background: isRec ? '#EF4444' : '#F3F4F6',
+              cursor: isProc ? 'not-allowed' : 'pointer',
+              display:'flex', alignItems:'center', justifyContent:'center',
+              transition:'all .2s',
+              animation: isRec ? 'mic-pulse 1s ease infinite' : 'none',
+            }}
+            onMouseEnter={e => { if (!isRec && !isProc) (e.currentTarget.style.background='#E5E7EB') }}
+            onMouseLeave={e => { if (!isRec) (e.currentTarget.style.background=isRec?'#EF4444':'#F3F4F6') }}>
+            {isProc
+              ? <div style={{ width:18, height:18, border:'2.5px solid #D1D5DB', borderTopColor:'#2563EB', borderRadius:'50%', animation:'spin .7s linear infinite' }} />
+              : isRec
+              ? <svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+              : <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6B7280" strokeWidth="2" strokeLinecap="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+            }
           </button>
 
-          <button
-            onClick={() => go()}
-            disabled={(!query.trim() && !transcript) || isBusy}
-            style={{ background:'#2563EB', color:'#fff', border:'none', borderRadius:10, padding:'11px clamp(12px,2vw,22px)', fontSize:14, fontWeight:600, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'background .15s', flexShrink:0, whiteSpace:'nowrap', opacity:(query.trim()||transcript)&&!isBusy?1:0.5 }}
-            onMouseEnter={e => { if (query.trim())(e.currentTarget.style.background='#1D4ED8') }}
+          <button onClick={() => go()} disabled={(!query.trim() && !transcript) || isBusy}
+            style={{ background:'#2563EB', color:'#fff', border:'none', borderRadius:12, padding:'13px clamp(16px,2.5vw,28px)', fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'Inter,sans-serif', transition:'background .15s', flexShrink:0, whiteSpace:'nowrap', opacity:(query.trim()||transcript)&&!isBusy?1:0.5 }}
+            onMouseEnter={e => { if (query.trim()) e.currentTarget.style.background='#1D4ED8' }}
             onMouseLeave={e => (e.currentTarget.style.background='#2563EB')}>
             Search →
           </button>
         </div>
 
-        {/* Status messages */}
-        {isRecording && (
-          <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:6, justifyContent:'center', fontSize:14, color:'#EF4444', fontWeight:500 }}>
-            <span style={{ width:8, height:8, borderRadius:'50%', background:'#EF4444', display:'inline-block', animation:'blink 1s infinite' }} />
-            Recording... tap the stop button when done
+        {/* Voice feedback states */}
+        {isRec && (
+          <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:8, justifyContent:'center' }}>
+            <div style={{ display:'flex', gap:4 }}>
+              {[0,1,2,3].map(i => (
+                <div key={i} style={{ width:3, height: 8 + Math.random()*12, background:'#EF4444', borderRadius:2, animation:`wave-bar .6s ${i*0.1}s infinite alternate ease-in-out` }} />
+              ))}
+            </div>
+            <span style={{ fontSize:14, color:'#EF4444', fontWeight:600 }}>Listening... tap stop when done</span>
           </div>
         )}
-        {isProcessing && (
-          <p style={{ marginTop:10, fontSize:14, color:'#6B7280', textAlign:'center' }}>Transcribing with Sarvam AI...</p>
+        {isProc && <p style={{ marginTop:10, fontSize:14, color:'#6B7280', textAlign:'center' }}>Transcribing with Sarvam AI...</p>}
+        {recState === 'error' && voiceStatus && (
+          <div style={{ marginTop:10, fontSize:13, color:'#EF4444', background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, padding:'8px 14px' }}>⚠️ {voiceStatus}</div>
         )}
-        {isError && statusMsg && (
-          <div style={{ marginTop:10, fontSize:13, color:'#EF4444', background:'#FEF2F2', border:'1px solid #FECACA', borderRadius:8, padding:'8px 14px', textAlign:'left' }}>
-            ⚠️ {statusMsg}
+        {transcript && !isBusy && recState !== 'error' && (
+          <div style={{ marginTop:10, fontSize:14, background:'#F0FDF4', border:'1px solid #BBF7D0', borderRadius:8, padding:'10px 16px', textAlign:'left', display:'flex', alignItems:'flex-start', gap:8 }}>
+            <span style={{ fontSize:16, flexShrink:0 }}>✅</span>
+            <div>
+              <span style={{ fontSize:12, color:'#059669', fontWeight:600, textTransform:'uppercase', letterSpacing:'.5px' }}>
+                You said{detectedLang ? ` (${getLangName(detectedLang)})` : ''}:
+              </span>
+              <div style={{ fontSize:14, color:'#111827', fontWeight:600, marginTop:2 }}>{transcript}</div>
+            </div>
           </div>
         )}
-        {transcript && !isBusy && !isError && (
-          <div style={{ marginTop:10, fontSize:14, color:'#374151', background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:8, padding:'8px 14px', textAlign:'left' }}>
-            <span style={{ color:'#6B7280', fontWeight:500 }}>You said: </span>
-            <span style={{ fontWeight:600 }}>{transcript}</span>
+        {!isBusy && !transcript && recState !== 'error' && (
+          <div style={{ marginTop:12, fontSize:13, color:'#9CA3AF', display:'flex', alignItems:'center', gap:6, justifyContent:'center' }}>
+            <span>🎙️</span>
+            <span>Try saying: <em style={{ color:'#6B7280', fontStyle:'normal', fontWeight:500 }}>&ldquo;Delhi mein best AC kaunsa hai?&rdquo;</em>
+            </span>
           </div>
-        )}
-        {!isBusy && !isError && !transcript && (
-          <p style={{ marginTop:10, fontSize:13, color:'#9CA3AF', textAlign:'center' }}>
-            🎙️ Tap mic · 22 Indian languages · Powered by Sarvam AI
-          </p>
         )}
 
         {/* Example chips */}
         <div style={{ display:'flex', gap:8, marginTop:14, flexWrap:'wrap', justifyContent:'center' }}>
           {EXAMPLES.map(ex => (
-            <button key={ex} onClick={() => go(ex)} style={{ background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:100, padding:'7px 14px', fontSize:13, color:'#374151', cursor:'pointer', fontWeight:500, transition:'all .15s', whiteSpace:'nowrap' }}
+            <button key={ex.q} onClick={() => go(ex.q)}
+              style={{ background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:100, padding:'7px 16px', fontSize:13, color:'#374151', cursor:'pointer', fontWeight:500, transition:'all .15s', whiteSpace:'nowrap' }}
               onMouseEnter={e => { e.currentTarget.style.borderColor='#2563EB'; e.currentTarget.style.color='#2563EB'; e.currentTarget.style.background='#EFF6FF' }}
               onMouseLeave={e => { e.currentTarget.style.borderColor='#E5E7EB'; e.currentTarget.style.color='#374151'; e.currentTarget.style.background='#F9FAFB' }}>
-              {ex}
+              {ex.label}
             </button>
           ))}
         </div>
+
+        {/* Language pills */}
+        <div style={{ display:'flex', gap:6, marginTop:16, flexWrap:'wrap', justifyContent:'center', alignItems:'center' }}>
+          <span style={{ fontSize:12, color:'#9CA3AF' }}>Ask in:</span>
+          {LANGS.map(l => <span key={l} style={{ fontSize:12, color:'#6B7280', background:'#F3F4F6', borderRadius:100, padding:'3px 10px', fontWeight:500 }}>{l}</span>)}
+        </div>
       </div>
 
-      {/* Language pills */}
-      <div style={{ display:'flex', gap:6, marginTop:24, flexWrap:'wrap', justifyContent:'center', animation:'fade-up .4s .24s ease both', opacity:0, animationFillMode:'forwards' }}>
-        <span style={{ fontSize:12, color:'#9CA3AF', fontWeight:500, alignSelf:'center' }}>Ask in:</span>
-        {LANGS.map(l => <span key={l} style={{ fontSize:12, color:'#6B7280', background:'#F3F4F6', borderRadius:100, padding:'3px 10px', fontWeight:500 }}>{l}</span>)}
-      </div>
-
-      {/* Stats */}
+      {/* Stats strip */}
       <div style={{ display:'flex', marginTop:44, background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:12, overflow:'hidden', animation:'fade-up .4s .3s ease both', opacity:0, animationFillMode:'forwards', flexWrap:'wrap' }}>
         {[['5M+','Reviews analysed'],['50K+','Products tracked'],['38%','Fake reviews caught'],['22','Indian languages']].map(([n,l],i) => (
-          <div key={l} style={{ padding:'14px clamp(14px,3vw,28px)', textAlign:'center', borderRight:i<3?'1px solid #E5E7EB':'none', flexShrink:0 }}>
+          <div key={l} style={{ padding:'14px clamp(12px,3vw,28px)', textAlign:'center', borderRight: i<3 ? '1px solid #E5E7EB' : 'none', flexShrink:0 }}>
             <div style={{ fontSize:'clamp(17px,2.5vw,22px)', fontWeight:800, color:'#111827', letterSpacing:'-0.5px' }}>
               {n.replace(/[M%K+]/g,'')}<span style={{ color:'#2563EB' }}>{n.match(/[M%K+]+/)?.[0]}</span>
             </div>
@@ -293,6 +232,22 @@ export default function Hero() {
           </div>
         ))}
       </div>
+
+      <p style={{ marginTop:16, fontSize:12, color:'#9CA3AF', animation:'fade-up .4s .35s ease both', opacity:0, animationFillMode:'forwards' }}>
+        🇮🇳 No ads · No paid placements · AI-adjusted ratings
+      </p>
+
+      <style>{`
+        @keyframes mic-pulse{0%,100%{box-shadow:0 0 0 3px rgba(239,68,68,0.25)}50%{box-shadow:0 0 0 8px rgba(239,68,68,0.06)}}
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+        @keyframes wave-bar{from{transform:scaleY(0.4)}to{transform:scaleY(1)}}
+      `}</style>
     </section>
   )
+}
+
+function getLangName(code: string): string {
+  const map: Record<string,string> = { 'hi-IN':'Hindi','ta-IN':'Tamil','te-IN':'Telugu','bn-IN':'Bengali','mr-IN':'Marathi','kn-IN':'Kannada','ml-IN':'Malayalam','gu-IN':'Gujarati','pa-IN':'Punjabi','en-IN':'English' }
+  return map[code] || code
 }
