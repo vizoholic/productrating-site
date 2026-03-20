@@ -4,8 +4,9 @@ import { useState, Suspense, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 import Footer from '@/components/Footer'
+import { detectLocation, getCachedLocation, cacheLocation, type LocationData } from '@/lib/useLocation'
 
-type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; pros:string[]; cons:string[]; avoid_if:string }
+type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; city_note:string; pros:string[]; cons:string[]; avoid_if:string }
 type SerpProduct = { title:string; price:string; rating:number|null; source:string; link:string; thumbnail:string; delivery:string }
 
 function getDirectUrl(seller: string, name: string): string {
@@ -158,6 +159,12 @@ function AiCard({ p, idx }: { p:AiProduct; idx:number }) {
 
         {/* One-line reason */}
         {p.reason && <p style={{ fontSize:13, color:'#374151', lineHeight:1.6, marginBottom:12 }}>{p.reason}</p>}
+        {p.city_note && (
+          <div style={{ display:'flex', alignItems:'flex-start', gap:6, marginBottom:12, background:'#EFF6FF', borderRadius:8, padding:'8px 12px' }}>
+            <span style={{ fontSize:14, flexShrink:0 }}>📍</span>
+            <span style={{ fontSize:12, color:'#2563EB', fontWeight:500, lineHeight:1.5 }}>{p.city_note}</span>
+          </div>
+        )}
 
         {/* Pros / Cons / Avoid — expandable */}
         {(p.pros?.length > 0 || p.cons?.length > 0 || p.avoid_if) && (
@@ -246,6 +253,9 @@ function SearchResults() {
   const [aiProducts, setAiProducts] = useState<AiProduct[]>([])
   const [serpProducts, setSerpProducts] = useState<SerpProduct[]>([])
   const [related, setRelated] = useState<string[]>([])
+  const [location, setLocation] = useState<LocationData|null>(null)
+  const [locationLoading, setLocationLoading] = useState(false)
+  const [locationError, setLocationError] = useState('')
   const [recState, setRecState] = useState<'idle'|'recording'|'processing'|'error'>('idle')
   const [voiceError, setVoiceError] = useState('')
   const [transcript, setTranscript] = useState('')
@@ -264,11 +274,23 @@ function SearchResults() {
     if (!q.trim()) return
     setLoading(true); setCalled(true); setAnswer(''); setAiProducts([]); setSerpProducts([]); setRelated([])
     try {
-      const r = await fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ question:q }) })
+      const r = await fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ question:q, city: location?.city||'', state: location?.state||'' }) })
       const d = await r.json()
       setAnswer(d.answer||''); setAiProducts(d.aiProducts||[]); setSerpProducts(d.serpProducts||[]); setRelated(d.relatedSearches||[])
     } catch { setAnswer('Something went wrong.') } finally { setLoading(false) }
   }
+
+  // Location detection on mount
+  useEffect(() => {
+    const cached = getCachedLocation()
+    if (cached) { setLocation(cached); return }
+    setLocationLoading(true)
+    detectLocation().then(loc => {
+      setLocationLoading(false)
+      if (loc && loc.city) { setLocation(loc); cacheLocation(loc) }
+      else setLocationError('Location not available')
+    })
+  }, [])
 
   if (query && !called && !loading) { doSearch(query); setCalled(true) }
   const submit = (q?: string) => { const t=(q||input).trim(); if(!t)return; router.push(`/search?q=${encodeURIComponent(t)}`); doSearch(t) }
@@ -334,6 +356,37 @@ function SearchResults() {
       <style>{`@keyframes mic-pulse{0%,100%{box-shadow:0 0 0 3px rgba(239,68,68,0.25)}50%{box-shadow:0 0 0 6px rgba(239,68,68,0.08)}}@keyframes spin{to{transform:rotate(360deg)}}@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}@keyframes analyzing-dot{0%,80%,100%{transform:scale(0.6);opacity:0.4}40%{transform:scale(1);opacity:1}}`}</style>
 
       {/* Loading — "Analyzing" animation */}
+      {/* Location bar */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16, flexWrap:'wrap' }}>
+        {locationLoading && (
+          <div style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, color:'#9CA3AF' }}>
+            <div style={{ width:10, height:10, border:'2px solid #E5E7EB', borderTopColor:'#2563EB', borderRadius:'50%', animation:'spin .7s linear infinite' }} />
+            Detecting your location...
+          </div>
+        )}
+        {location && (
+          <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:100, padding:'5px 14px', fontSize:13, fontWeight:600, color:'#2563EB' }}>
+            <span>📍</span>
+            <span>Results personalised for {location.display || location.city || location.state}</span>
+            <button onClick={() => { setLocation(null); setLocationError(''); sessionStorage.removeItem('pr_location') }}
+              style={{ background:'none', border:'none', cursor:'pointer', color:'#9CA3AF', fontSize:12, padding:0, marginLeft:4, lineHeight:1 }} title="Clear location">✕</button>
+          </div>
+        )}
+        {!location && !locationLoading && (
+          <button onClick={() => {
+            setLocationLoading(true); setLocationError('')
+            detectLocation().then(loc => {
+              setLocationLoading(false)
+              if (loc?.city) { setLocation(loc); cacheLocation(loc) }
+              else setLocationError('Could not detect. Please allow location access.')
+            })
+          }} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#F9FAFB', border:'1px dashed #D1D5DB', borderRadius:100, padding:'5px 14px', fontSize:13, color:'#6B7280', cursor:'pointer', fontWeight:500 }}>
+            <span>📍</span> Detect my city for better results
+          </button>
+        )}
+        {locationError && <span style={{ fontSize:12, color:'#EF4444' }}>{locationError}</span>}
+      </div>
+
       {loading&&(
         <div style={{textAlign:'center',padding:'60px 0'}}>
           <div style={{display:'flex',gap:8,justifyContent:'center',marginBottom:16}}>
@@ -349,6 +402,7 @@ function SearchResults() {
           <div style={{marginBottom:20,paddingBottom:16,borderBottom:'1px solid #E5E7EB'}}>
             <div style={{fontSize:12,color:'#9CA3AF',marginBottom:6,textTransform:'uppercase',letterSpacing:'1px',fontWeight:600}}>Results for</div>
             <h1 style={{fontFamily:'Plus Jakarta Sans,sans-serif',fontSize:'clamp(18px,3vw,24px)',fontWeight:800,color:'#111827',letterSpacing:'-0.5px'}}>{query||input}</h1>
+            {location && <span style={{fontSize:12,color:'#2563EB',fontWeight:500,marginTop:4,display:'block'}}>📍 Personalised for {location.display}</span>}
           </div>
 
           {/* AI Answer */}
