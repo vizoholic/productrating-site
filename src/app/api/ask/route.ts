@@ -2,6 +2,34 @@ import { NextRequest, NextResponse } from 'next/server'
 import { searchGoogleShopping, buildProductContext } from '@/lib/serpapi'
 export const runtime = 'nodejs'
 
+// Tier 1 cities — city-level personalization
+const TIER1 = new Set([
+  'delhi','new delhi','mumbai','bombay','bangalore','bengaluru','chennai',
+  'kolkata','calcutta','hyderabad','secunderabad','pune','ahmedabad','surat'
+])
+
+// Tier 2 cities — city-level personalization  
+const TIER2 = new Set([
+  'jaipur','lucknow','kanpur','nagpur','visakhapatnam','vizag','bhopal','patna',
+  'vadodara','baroda','ghaziabad','ludhiana','agra','nashik','faridabad',
+  'meerut','rajkot','varanasi','srinagar','aurangabad','amritsar','ranchi',
+  'coimbatore','jabalpur','gwalior','vijayawada','jodhpur','madurai','raipur',
+  'kota','chandigarh','guwahati','solapur','hubli','dharwad','tiruchirappalli',
+  'trichy','bareilly','aligarh','moradabad','mysuru','mysore','gorakhpur',
+  'jalandhar','bhubaneswar','salem','warangal','guntur','bhiwandi','saharanpur',
+  'dehradun','kochi','cochin','kozhikode','thiruvananthapuram','trivandrum',
+  'indore','noida','gurgaon','gurugram','navi mumbai','thane'
+])
+
+function getLocationContext(city: string, state: string): { level: 'city'|'state'|'general'; label: string } {
+  const c = city.toLowerCase().trim()
+  const s = state.toLowerCase().trim()
+  if (c && (TIER1.has(c) || TIER2.has(c))) return { level: 'city', label: city }
+  if (c && c.length > 2) return { level: 'state', label: state || city }  // smaller city → use state
+  if (s && s.length > 2) return { level: 'state', label: state }
+  return { level: 'general', label: '' }
+}
+
 export async function POST(req: NextRequest) {
   const ct = req.headers.get('content-type') || ''
 
@@ -34,83 +62,90 @@ export async function POST(req: NextRequest) {
 
   const city = body.city?.trim() || ''
   const state = body.state?.trim() || ''
-  const locationStr = city ? (state && state !== city ? `${city}, ${state}` : city) : state || ''
+  const loc = getLocationContext(city, state)
 
   const apiKey = process.env.SARVAM_API_KEY
   if (!apiKey) return NextResponse.json({ answer:'⚠️ SARVAM_API_KEY not set.', products:[], serpProducts:[], aiProducts:[] })
 
   // Language detection
-  const langMap: [RegExp, string][] = [
-    [/[\u0900-\u097F]/, 'Respond ENTIRELY in Hindi (Devanagari). Product names/prices in English is fine.'],
-    [/[\u0B80-\u0BFF]/, 'Respond ENTIRELY in Tamil.'],
-    [/[\u0C00-\u0C7F]/, 'Respond ENTIRELY in Telugu.'],
-    [/[\u0980-\u09FF]/, 'Respond ENTIRELY in Bengali.'],
-    [/[\u0C80-\u0CFF]/, 'Respond ENTIRELY in Kannada.'],
-    [/[\u0D00-\u0D7F]/, 'Respond ENTIRELY in Malayalam.'],
-    [/[\u0A80-\u0AFF]/, 'Respond ENTIRELY in Gujarati.'],
-    [/[\u0A00-\u0A7F]/, 'Respond ENTIRELY in Punjabi (Gurmukhi).'],
+  const langMap: [RegExp,string][] = [
+    [/[\u0900-\u097F]/,'Respond ENTIRELY in Hindi (Devanagari). Product names/prices in English is fine.'],
+    [/[\u0B80-\u0BFF]/,'Respond ENTIRELY in Tamil.'],
+    [/[\u0C00-\u0C7F]/,'Respond ENTIRELY in Telugu.'],
+    [/[\u0980-\u09FF]/,'Respond ENTIRELY in Bengali.'],
+    [/[\u0C80-\u0CFF]/,'Respond ENTIRELY in Kannada.'],
+    [/[\u0D00-\u0D7F]/,'Respond ENTIRELY in Malayalam.'],
+    [/[\u0A80-\u0AFF]/,'Respond ENTIRELY in Gujarati.'],
+    [/[\u0A00-\u0A7F]/,'Respond ENTIRELY in Punjabi (Gurmukhi).'],
   ]
   const hinglishRe = /\b(kaunsa|kaun sa|mein|ke andar|kya hai|acha|sahi|lena|chahiye|konsa|wala|bahut)\b/i
   let lang = ''
   for (const [re,inst] of langMap) { if (re.test(question)) { lang=`IMPORTANT: ${inst}`; break } }
   if (!lang && hinglishRe.test(question)) lang = 'IMPORTANT: Respond in natural Hinglish — mix Hindi and English as Indians speak.'
 
-  // Build city-aware search query for Google Shopping
-  const searchQuery = locationStr ? `${question} ${locationStr}` : question
+  // Google Shopping — include location in query for local results
+  const searchQuery = loc.label ? `${question} ${loc.label}` : question
   const serpResult = await searchGoogleShopping(searchQuery).catch(() => ({ products:[], relatedSearches:[], query:question }))
   const serpContext = buildProductContext(serpResult)
 
-  // City-specific instructions for AI
-  const cityInstructions = locationStr ? `
-USER LOCATION: ${locationStr}
-CRITICAL — USE THIS LOCATION CONTEXT:
-- Tailor ALL recommendations specifically for ${locationStr}
-- Consider local climate: ${getCityClimate(city, state)}
-- Mention ${locationStr}-specific factors (local humidity, temperature, power supply, water quality, local service centers)
-- If recommending ACs, refrigerators, geysers — factor in ${city || state}'s weather
-- Mention which products are popular/trusted in ${locationStr}
-- Note availability at local stores if known (e.g. Croma, Reliance Digital in ${city})
-` : `
-No location detected. Give general India-wide advice and ask the user to mention their city for better recommendations.
-`
+  // Location context for AI — fully dynamic, AI decides what's relevant
+  let locationPrompt = ''
+  if (loc.level === 'city') {
+    locationPrompt = `
+USER CITY: ${loc.label} (Tier 1/2 Indian city)
+Personalise ALL recommendations for ${loc.label}. You know this city well — its climate, infrastructure, common issues, popular brands, and local buying preferences. Factor these in naturally without being repetitive. Do NOT mention the city in every product card — mention it only in the opening summary.`
+  } else if (loc.level === 'state') {
+    locationPrompt = `
+USER STATE/REGION: ${loc.label}
+Personalise recommendations for ${loc.label} as a region. Consider regional climate, infrastructure, and buying patterns typical of this state. Do NOT mention the location in every product card — mention it only in the opening summary.`
+  } else {
+    locationPrompt = `No location provided. Give general India-wide recommendations. Suggest the user share their city for better personalisation.`
+  }
 
   const systemPrompt = `You are ProductRating.in's AI advisor — powered by Sarvam AI (India's own LLM).
 ${lang}
-${cityInstructions}
+${locationPrompt}
 
 CRITICAL JSON RULES:
+- Return EXACTLY 3 products. No more, no less.
 - "rating": AI-adjusted score OUT OF 5. Between 1.0–5.0 ONLY.
-- "platform_rating": Raw platform rating BEFORE fake review removal. Between 1.0–5.0. Slightly HIGHER than rating.
-- "pros": Array of 2-3 short strings (genuine advantages, mention location if relevant)
-- "cons": Array of 1-2 short strings (real drawbacks)
-- "avoid_if": One short string (who should NOT buy this)
-- "city_note": One short string explaining WHY this product suits ${locationStr || 'India'} specifically
+- "platform_rating": Raw platform score BEFORE fake review removal. Between 1.0–5.0. Slightly higher than rating.
+- "pros": Array of exactly 2 short strings (key advantages)
+- "cons": Array of exactly 1 short string (main drawback)
+- "avoid_if": One short string describing who should NOT buy this
+- Do NOT include any location/city reference inside individual product fields — only in the opening text.
 
 INSTRUCTIONS:
-1. Write 2-4 sentences of advice in plain text. Start with "${locationStr ? `For ${locationStr} buyers, ` : ''}". No markdown, no asterisks, no bullets.
+1. Write 2-3 sentences of advice in plain text. Mention location context ONCE here if available. No markdown.
 2. New line: ---PRODUCTS---
-3. JSON array of 4-6 products:
+3. JSON array of EXACTLY 3 products:
 [{
-  "name": "Product Name",
+  "name": "Full Product Name with variant",
   "price": "₹XX,XXX",
   "seller": "Amazon",
   "rating": 4.2,
   "platform_rating": 4.6,
   "reviews": "2.3k",
-  "badge": "Best for ${locationStr || 'India'}",
-  "reason": "One line reason specific to ${locationStr || 'Indian'} conditions",
-  "city_note": "Why this suits ${locationStr || 'your city'}",
-  "pros": ["Good for humid weather", "Strong build for frequent power cuts"],
-  "cons": ["Slightly expensive"],
-  "avoid_if": "You need something very compact"
+  "badge": "Best Pick",
+  "reason": "One punchy sentence — why this wins overall",
+  "pros": ["Key advantage 1", "Key advantage 2"],
+  "cons": ["Main drawback"],
+  "avoid_if": "You need X or Y"
 }]
-4. NEVER use <think> tags or **markdown**.`
+4. NEVER use <think> tags or **markdown** formatting.`
 
   try {
     const res = await fetch('https://api.sarvam.ai/v1/chat/completions', {
       method:'POST',
       headers:{'Content-Type':'application/json','api-subscription-key':apiKey},
-      body:JSON.stringify({ model:'sarvam-m', messages:[{role:'system',content:systemPrompt},{role:'user',content:`Question: ${question}\n${locationStr?`User location: ${locationStr}\n`:''}\n${serpContext?`Live data:\n${serpContext}`:'\nUse your Indian market knowledge.'}`}], max_tokens:1800, temperature:0.4 }),
+      body:JSON.stringify({
+        model:'sarvam-m',
+        messages:[
+          {role:'system', content:systemPrompt},
+          {role:'user', content:`Question: ${question}\n${loc.label?`User location: ${loc.label}\n`:''}\n${serpContext?`Live market data:\n${serpContext}`:'\nUse your Indian market knowledge.'}`}
+        ],
+        max_tokens:1600, temperature:0.4
+      }),
     })
     const raw = await res.text()
     if (!res.ok) return NextResponse.json({ answer:`⚠️ Sarvam error (${res.status}).`, products:[], serpProducts:[], aiProducts:[] })
@@ -119,21 +154,21 @@ INSTRUCTIONS:
     const content = data.choices?.[0]?.message?.content || ''
     const clean = content.replace(/<think>[\s\S]*?<\/think>/gi,'').replace(/\*\*(.*?)\*\*/g,'$1').replace(/\*(.*?)\*/g,'$1').trim()
     const parts = clean.split(/---PRODUCTS---/i)
-    const answerText = parts[0].trim() || 'Here are the best options.'
-    type AiP = {name:string;price:string;seller:string;rating:number;platform_rating:number;reviews:string;badge:string;reason:string;city_note:string;pros:string[];cons:string[];avoid_if:string}
+    const answerText = parts[0].trim() || 'Here are the top 3 options.'
+    type AiP = {name:string;price:string;seller:string;rating:number;platform_rating:number;reviews:string;badge:string;reason:string;pros:string[];cons:string[];avoid_if:string}
     let aiProducts: AiP[] = []
     if (parts[1]) {
       try {
         const m = parts[1].match(/\[[\s\S]*\]/)
         if (m) {
-          aiProducts = JSON.parse(m[0]).map((p: Record<string,unknown>) => ({
+          const parsed = JSON.parse(m[0]).slice(0, 3)  // enforce max 3
+          aiProducts = parsed.map((p: Record<string,unknown>) => ({
             ...p,
             rating: Math.min(5.0, Math.max(1.0, Number(p.rating)||4.0)),
             platform_rating: Math.min(5.0, Math.max(1.0, Number(p.platform_rating)||Math.min(5.0,(Number(p.rating)||4.0)+0.3))),
-            pros: Array.isArray(p.pros) ? p.pros : [],
-            cons: Array.isArray(p.cons) ? p.cons : [],
+            pros: Array.isArray(p.pros) ? p.pros.slice(0,2) : [],
+            cons: Array.isArray(p.cons) ? p.cons.slice(0,1) : [],
             avoid_if: String(p.avoid_if || ''),
-            city_note: String(p.city_note || ''),
           }))
         }
       } catch {}
@@ -142,27 +177,4 @@ INSTRUCTIONS:
   } catch(err) {
     return NextResponse.json({ answer:`⚠️ Network error: ${String(err)}`, products:[], serpProducts:[], aiProducts:[] })
   }
-}
-
-// Returns climate description for a city/state to help AI give better advice
-function getCityClimate(city: string, state: string): string {
-  const loc = `${city} ${state}`.toLowerCase()
-  if (/delhi|ncr|gurgaon|gurugram|noida|faridabad/.test(loc)) return 'extreme summers (45°C+), cold winters, dry heat, frequent dust storms'
-  if (/mumbai|pune|nashik|kolhapur/.test(loc)) return 'high humidity year-round, moderate temperatures, heavy monsoon rains'
-  if (/bengaluru|bangalore|mysuru|mysore/.test(loc)) return 'pleasant year-round, moderate climate, mild summers, no extreme heat'
-  if (/chennai|coimbatore|madurai|tamil/.test(loc)) return 'very hot and humid, long summers, heavy rain in Nov-Dec'
-  if (/hyderabad|secunderabad|telangana/.test(loc)) return 'hot summers, moderate humidity, comfortable winters'
-  if (/kolkata|howrah|west bengal/.test(loc)) return 'very hot and humid summers, cold winters, heavy monsoon'
-  if (/ahmedabad|surat|gujarat/.test(loc)) return 'very hot summers (42°C+), dry heat, moderate winters'
-  if (/jaipur|jodhpur|rajasthan/.test(loc)) return 'extreme dry heat (45°C+), cold winters, very low humidity'
-  if (/lucknow|kanpur|uttar pradesh|agra/.test(loc)) return 'very hot summers, cold winters, moderate humidity'
-  if (/bhopal|indore|madhya pradesh/.test(loc)) return 'hot summers, moderate winters, good rainfall'
-  if (/chandigarh|punjab|amritsar|ludhiana/.test(loc)) return 'very hot summers, very cold winters, moderate humidity'
-  if (/kochi|kozhikode|thiruvananthapuram|kerala/.test(loc)) return 'very high humidity, heavy rainfall, warm year-round'
-  if (/patna|bihar/.test(loc)) return 'very hot summers, cold winters, high humidity in monsoon'
-  if (/shimla|manali|himachal|dehradun|uttarakhand/.test(loc)) return 'cold climate, heavy snowfall in winter, mild summers'
-  if (/goa/.test(loc)) return 'tropical, high humidity, heavy monsoon, warm year-round'
-  if (/bhubaneswar|odisha/.test(loc)) return 'hot and humid, heavy cyclone-season rains'
-  if (/nagpur|aurangabad|maharashtra/.test(loc)) return 'very hot summers (47°C+), dry heat, moderate winters'
-  return 'typical Indian climate, varying by season'
 }
