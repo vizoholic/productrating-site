@@ -1,6 +1,7 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { detectLocation, getCachedLocation, cacheLocation, type LocationData } from '@/lib/useLocation'
 
 const EXAMPLES = [
   { label: 'Best AC for Delhi heat', q: 'Best AC for Delhi under ₹40,000' },
@@ -21,7 +22,14 @@ export default function Hero() {
   const mediaRef = useRef<MediaRecorder|null>(null)
   const chunksRef = useRef<Blob[]>([])
   const streamRef = useRef<MediaStream|null>(null)
+  const [location, setLocation] = useState<LocationData|null>(null)
   const router = useRouter()
+
+  useEffect(() => {
+    const cached = getCachedLocation()
+    if (cached?.city) { setLocation(cached); return }
+    detectLocation().then(loc => { if (loc?.city) { setLocation(loc); cacheLocation(loc) } })
+  }, [])
 
   useEffect(() => {
     if (recState !== 'recording') return
@@ -195,10 +203,12 @@ export default function Hero() {
           </div>
         )}
         {!isBusy && !transcript && recState !== 'error' && (
-          <div style={{ marginTop:12, fontSize:13, color:'#9CA3AF', display:'flex', alignItems:'center', gap:6, justifyContent:'center' }}>
+          <div style={{ marginTop:12, fontSize:13, color:'#9CA3AF', display:'flex', alignItems:'center', gap:6, justifyContent:'center', flexWrap:'wrap' }}>
             <span>🎙️</span>
-            <span>Try saying: <em style={{ color:'#6B7280', fontStyle:'normal', fontWeight:500 }}>&ldquo;Delhi mein best AC kaunsa hai?&rdquo;</em>
-            </span>
+            {location?.city
+              ? <span>Try: <em style={{ color:'#2563EB', fontStyle:'normal', fontWeight:600 }}>&ldquo;Best AC for {location.city} heat&rdquo;</em></span>
+              : <span>Try saying: <em style={{ color:'#6B7280', fontStyle:'normal', fontWeight:500 }}>&ldquo;Delhi mein best AC kaunsa hai?&rdquo;</em></span>
+            }
           </div>
         )}
 
@@ -220,6 +230,13 @@ export default function Hero() {
           {LANGS.map(l => <span key={l} style={{ fontSize:12, color:'#6B7280', background:'#F3F4F6', borderRadius:100, padding:'3px 10px', fontWeight:500 }}>{l}</span>)}
         </div>
       </div>
+
+      {/* Location badge */}
+      {location && (
+        <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#EFF6FF', border:'1px solid #BFDBFE', borderRadius:100, padding:'5px 14px', fontSize:12, fontWeight:600, color:'#2563EB', marginTop:8, animation:'fade-up .4s .28s ease both', opacity:0, animationFillMode:'forwards' }}>
+          <span>📍</span> Showing results for {location.display || location.city}
+        </div>
+      )}
 
       {/* Stats strip */}
       <div style={{ display:'flex', marginTop:44, background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:12, overflow:'hidden', animation:'fade-up .4s .3s ease both', opacity:0, animationFillMode:'forwards', flexWrap:'wrap' }}>
