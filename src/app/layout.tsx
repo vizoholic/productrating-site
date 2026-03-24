@@ -1,43 +1,49 @@
+// src/app/layout.tsx
 import type { Metadata } from 'next'
-import '../styles/globals.css'
+import './globals.css'
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://productrating.in'),
   title: {
-    default: 'ProductRating.in — India\'s AI Product Intelligence Platform',
+    default: 'ProductRating.in — AI-Powered Product Intelligence for India',
     template: '%s | ProductRating.in',
   },
-  description: 'AI-powered product ratings and reviews aggregated from Flipkart, Amazon, Nykaa, Meesho & more. India\'s most trusted product intelligence platform. Ask anything, get honest answers.',
-  keywords: ['product rating india', 'flipkart reviews', 'amazon india reviews', 'best products india', 'product comparison india', 'AI product review'],
+  description: 'Find the best products in India with AI-adjusted ratings. We remove fake reviews from Amazon, Flipkart, Nykaa and 6+ platforms. Ask in Hindi, Tamil, Telugu or any Indian language.',
+  keywords: ['product ratings India', 'AI product reviews', 'best products India', 'fake review detector', 'product comparison India'],
   authors: [{ name: 'ProductRating.in' }],
   creator: 'ProductRating.in',
+  metadataBase: new URL('https://www.productrating.in'),
+  alternates: { canonical: 'https://www.productrating.in' },
   openGraph: {
     type: 'website',
     locale: 'en_IN',
-    url: 'https://productrating.in',
+    url: 'https://www.productrating.in',
     siteName: 'ProductRating.in',
-    title: 'ProductRating.in — India\'s AI Product Intelligence Platform',
-    description: 'Ask anything about any product. Get AI-powered ratings from every Indian platform.',
-    images: [{ url: '/og-image.png', width: 1200, height: 630, alt: 'ProductRating.in' }],
+    title: 'ProductRating.in — AI Product Intelligence for India',
+    description: 'AI-adjusted product ratings aggregated from Amazon, Flipkart, Nykaa & more. Fake reviews removed. Ask in any Indian language.',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'ProductRating.in — India\'s AI Product Intelligence',
-    description: 'AI-powered product ratings for Indian consumers',
-    images: ['/og-image.png'],
+    title: 'ProductRating.in — AI Product Intelligence for India',
+    description: 'AI-adjusted product ratings. Fake reviews removed. Ask in Hindi, Tamil, Telugu & more.',
   },
-  robots: { index: true, follow: true, googleBot: { index: true, follow: true, 'max-image-preview': 'large' } },
-  alternates: { canonical: 'https://productrating.in' },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      'max-video-preview': -1,
+      'max-image-preview': 'large',
+      'max-snippet': -1,
+    },
+  },
+  // ADD YOUR GOOGLE SEARCH CONSOLE VERIFICATION CODE HERE:
+  // verification: { google: 'YOUR_CODE_FROM_SEARCH_CONSOLE' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        <link rel="icon" href="/favicon.ico" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <meta name="theme-color" content="#080A0F" />
-      </head>
       <body>{children}</body>
     </html>
   )
