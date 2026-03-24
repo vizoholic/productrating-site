@@ -1,42 +1,83 @@
-// src/app/api/ask/route.ts — thin wrapper around shared search logic
+// src/app/api/ask/route.ts
+
 import { NextRequest, NextResponse } from 'next/server'
 import { runSearch } from '@/lib/search'
+
 export const runtime = 'nodejs'
 
+const ALLOWED_ORIGINS = [
+  'https://www.productrating.in',
+  'https://productrating.in',
+  'http://localhost:3000',
+  'http://localhost:3001',
+]
+
+function isOriginAllowed(req: NextRequest): boolean {
+  const origin = req.headers.get('origin')
+  // No origin header = server-side call (SSR, curl, Googlebot) → ALLOW
+  // This is critical: /r/[slug] SSR page calls this internally
+  if (!origin) return true
+  // Has origin = browser call → check it's our domain
+  return ALLOWED_ORIGINS.some(o => origin.startsWith(o))
+}
+
+function sanitise(str: string, maxLen = 300): string {
+  return str.trim().slice(0, maxLen).replace(/[<>]/g, '')
+}
+
 export async function POST(req: NextRequest) {
+  if (!isOriginAllowed(req)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const ct = req.headers.get('content-type') || ''
 
   // ── Voice STT ──
   if (ct.includes('multipart/form-data')) {
     const apiKey = process.env.SARVAM_API_KEY
-    if (!apiKey) return NextResponse.json({ error: 'SARVAM_API_KEY not set', transcript: '' }, { status: 500 })
+    if (!apiKey) return NextResponse.json({ error: 'Config error', transcript: '' }, { status: 500 })
     let fd: FormData
-    try { fd = await req.formData() } catch (e) { return NextResponse.json({ error: `Form error: ${e}`, transcript: '' }, { status: 400 }) }
+    try { fd = await req.formData() } catch {
+      return NextResponse.json({ error: 'Invalid form data', transcript: '' }, { status: 400 })
+    }
     const f = (fd.get('file') ?? fd.get('audio')) as File | null
     if (!f) return NextResponse.json({ error: 'No audio', transcript: '' }, { status: 400 })
-    if (f.size === 0) return NextResponse.json({ error: 'Empty audio — record for longer', transcript: '' }, { status: 400 })
+    if (f.size === 0) return NextResponse.json({ error: 'Empty audio', transcript: '' }, { status: 400 })
+    if (f.size > 5 * 1024 * 1024) return NextResponse.json({ error: 'Audio too large', transcript: '' }, { status: 413 })
     const sf = new FormData()
     sf.append('file', f); sf.append('model', 'saarika:v2.5'); sf.append('language_code', 'unknown')
     try {
-      const sr = await fetch('https://api.sarvam.ai/speech-to-text', { method: 'POST', headers: { 'api-subscription-key': apiKey }, body: sf })
+      const sr = await fetch('https://api.sarvam.ai/speech-to-text', {
+        method: 'POST', headers: { 'api-subscription-key': apiKey }, body: sf,
+      })
       const rt = await sr.text()
-      if (!sr.ok) return NextResponse.json({ error: `STT ${sr.status}`, transcript: '' }, { status: 500 })
+      if (!sr.ok) return NextResponse.json({ error: 'STT failed', transcript: '' }, { status: 500 })
       let d: { transcript?: string; language_code?: string } = {}
       try { d = JSON.parse(rt) } catch {}
       return NextResponse.json({ transcript: d.transcript || '', detectedLanguage: d.language_code || '' })
-    } catch (e) { return NextResponse.json({ error: `Network: ${e}`, transcript: '' }, { status: 500 }) }
+    } catch {
+      return NextResponse.json({ error: 'STT network error', transcript: '' }, { status: 500 })
+    }
   }
 
   // ── Chat / Search ──
   let body: { question?: string; city?: string; state?: string } = {}
-  try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
-  const question = body.question?.trim()
-  if (!question) return NextResponse.json({ error: 'No question' }, { status: 400 })
+  try { body = await req.json() } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  const raw = body.question || ''
+  if (!raw.trim()) return NextResponse.json({ error: 'No question' }, { status: 400 })
+  if (raw.length > 500) return NextResponse.json({ error: 'Query too long' }, { status: 400 })
+
+  const question = sanitise(raw)
+  const city = sanitise(body.city || '', 100)
+  const state = sanitise(body.state || '', 100)
+
   const apiKey = process.env.SARVAM_API_KEY
-  if (!apiKey) return NextResponse.json({ answer: '⚠️ SARVAM_API_KEY not set.', products: [], serpProducts: [], aiProducts: [] })
+  if (!apiKey) return NextResponse.json({ answer: '⚠️ Config error.', products: [], serpProducts: [], aiProducts: [] })
 
   try {
-    const result = await runSearch(question, body.city || '', body.state || '', apiKey)
+    const result = await runSearch(question, city, state, apiKey)
     return NextResponse.json({ ...result, products: [] })
   } catch (err) {
     return NextResponse.json({ answer: `⚠️ Error: ${String(err)}`, products: [], serpProducts: [], aiProducts: [] })
