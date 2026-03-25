@@ -34,7 +34,7 @@ function EditorSeal() {
   return (
     <div style={{display:'inline-flex',alignItems:'center',gap:7,background:'var(--gold-bg)',border:'1px solid rgba(160,120,42,0.2)',borderRadius:8,padding:'6px 14px'}}>
       <Icon d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" size={11}/>
-      <span style={{fontSize:10,fontWeight:500,color:'var(--gold)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',color:'var(--gold)'}}>Editor's Choice</span>
+      <span style={{fontSize:10,fontWeight:500,color:'var(--gold)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>Editor's Choice</span>
     </div>
   )
 }
