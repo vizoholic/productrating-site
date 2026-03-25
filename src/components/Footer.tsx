@@ -1,4 +1,5 @@
-// Point 11 — richer footer with brand statement, social links, trust note
+'use client'
+// Point 11 — richer footer
 import Link from 'next/link'
 
 export default function Footer() {
