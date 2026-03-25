@@ -41,7 +41,7 @@ export default function Footer() {
                 </div>
                 <span style={{fontWeight:600,fontSize:15,color:'var(--ink)',letterSpacing:'-0.2px'}}>ProductRating<span style={{color:'var(--accent)' }}>.in</span></span>
               </div>
-              <p style={{fontSize:13,color:'var(--ink-3)',lineHeight:1.85,maxWidth:280,letterSpacing:'0.02em',fontWeight:300,marginBottom:18}}>
+              <p style={{fontSize:13,color:'var(--ink-2)',lineHeight:1.85,maxWidth:280,letterSpacing:'0.02em',fontWeight:300,marginBottom:18}}>
                 India's AI product intelligence platform. One honest score across 8+ platforms. No ads, no paid placements.
               </p>
               <div style={{display:'inline-flex',alignItems:'center',gap:7,background:'var(--green-bg)',border:'1px solid rgba(22,163,74,0.18)',borderRadius:8,padding:'6px 14px'}}>
@@ -56,7 +56,7 @@ export default function Footer() {
               <div key={col.head}>
                 <p style={{fontSize:10,fontWeight:500,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:20}}>{col.head}</p>
                 {col.links.map(([l,h])=>(
-                  <Link key={l} href={h} style={{display:'block',fontSize:13,fontWeight:300,color:'var(--ink-3)',marginBottom:12,transition:`color var(--t-fast) var(--ease)`,letterSpacing:'0.02em'}}
+                  <Link key={l} href={h} style={{display:'block',fontSize:13,fontWeight:400,color:'var(--ink-2)',marginBottom:12,transition:`color var(--t-fast) var(--ease)`,letterSpacing:'0.02em'}}
                     onMouseEnter={e=>(e.currentTarget.style.color='var(--ink)')}
                     onMouseLeave={e=>(e.currentTarget.style.color='var(--ink-3)')}>{l}
                   </Link>
@@ -65,8 +65,8 @@ export default function Footer() {
             ))}
           </div>
           <div style={{borderTop:'1px solid rgba(0,0,0,0.07)',paddingTop:24,display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:12}}>
-            <span style={{fontSize:12,color:'var(--ink-4)',fontFamily:'var(--font-mono)'}}>© 2025 ProductRating.in · 🇮🇳 Built in India</span>
-            <span style={{fontSize:12,color:'var(--ink-4)',fontFamily:'var(--font-mono)'}}>AI Product Intelligence</span>
+            <span style={{fontSize:12,color:'var(--ink-3)',fontFamily:'var(--font-mono)'}}>© 2025 ProductRating.in · 🇮🇳 Built in India</span>
+            <span style={{fontSize:12,color:'var(--ink-3)',fontFamily:'var(--font-mono)'}}>AI Product Intelligence</span>
           </div>
         </div>
       </footer>
