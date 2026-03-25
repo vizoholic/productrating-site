@@ -18,8 +18,8 @@ export default function Nav() {
       padding:'0 clamp(24px,5vw,48px)',
     }}>
       <Link href="/" style={{display:'flex',alignItems:'center',gap:10}}>
-        <div style={{width:32,height:32,borderRadius:9,background:'var(--ink)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 8px rgba(0,0,0,0.15)'}}>
-          <span style={{color:'var(--bg)',fontSize:12,fontWeight:800}}>PR</span>
+        <div style={{width:32,height:32,borderRadius:9,background:'linear-gradient(135deg, #5B4FCF, #7C6FCD)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 2px 12px rgba(91,79,207,0.4)'}}>
+          <span style={{color:'#fff',fontSize:12,fontWeight:800}}>PR</span>
         </div>
         <span style={{fontWeight:600,fontSize:15,color:'var(--ink)',letterSpacing:'-0.3px'}}>ProductRating<span style={{color:'var(--accent)' }}>.in</span></span>
       </Link>
