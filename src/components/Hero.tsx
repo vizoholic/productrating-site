@@ -133,7 +133,7 @@ export default function Hero() {
             background:'rgba(255,255,255,0.85)',
             backdropFilter:'blur(20px)',
             WebkitBackdropFilter:'blur(20px)',
-            border:`1.5px solid ${isRec?'rgba(220,38,38,0.45)':focused?'var(--accent)':'rgba(0,0,0,0.1)'}`,
+            border:`1.5px solid ${isRec?'rgba(220,38,38,0.45)':focused?'var(--accent)':'rgba(91,79,207,0.3)'}`,
             borderRadius:22,
             boxShadow: focused
               ? `0 0 0 5px rgba(91,79,207,0.08), var(--shadow-raised)`
