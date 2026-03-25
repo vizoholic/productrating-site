@@ -1,77 +1,79 @@
 'use client'
-// Point 11 — richer footer
 import Link from 'next/link'
 
 export default function Footer() {
   return (
     <>
-      {/* CTA */}
-      <section style={{ padding:'clamp(60px,8vw,100px) clamp(20px,5vw,40px)', background:'#FAFAF9', borderTop:'1px solid rgba(0,0,0,0.06)', textAlign:'center', position:'relative', overflow:'hidden' }}>
-        <div style={{ position:'absolute', inset:0, background:'radial-gradient(ellipse at center, rgba(91,79,207,0.05) 0%, transparent 65%)', pointerEvents:'none' }} />
-        <div style={{ position:'relative', maxWidth:560, margin:'0 auto' }}>
-          <h2 style={{ fontFamily:'Sora,sans-serif', fontSize:'clamp(26px,4.5vw,48px)', fontWeight:800, letterSpacing:'-1.5px', color:'#111110', lineHeight:1.08, marginBottom:16 }}>
-            Reviews, made trustworthy.<br/>
-            <span style={{ background:'linear-gradient(135deg,#5B4FCF,#8B5CF6)', WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text' }}>
-              Free, forever.
-            </span>
+      {/* CTA — confident, not loud */}
+      <section style={{ padding:'clamp(80px,10vw,120px) clamp(20px,5vw,48px)', background:'var(--ink)', position:'relative', overflow:'hidden' }}>
+        <div style={{ position:'absolute', inset:0, backgroundImage:'linear-gradient(rgba(248,246,241,0.015) 1px, transparent 1px), linear-gradient(90deg, rgba(248,246,241,0.015) 1px, transparent 1px)', backgroundSize:'60px 60px', pointerEvents:'none' }} />
+        <div style={{ position:'relative', maxWidth:680, margin:'0 auto', textAlign:'center' }}>
+          <p style={{ fontSize:11, color:'rgba(248,246,241,0.3)', fontFamily:'var(--font-mono)', letterSpacing:'2px', textTransform:'uppercase', marginBottom:24 }}>Free · No ads · No paid placements</p>
+          <h2 style={{ fontFamily:'var(--font-serif)', fontSize:'clamp(30px,5vw,58px)', fontWeight:700, color:'var(--bg)', letterSpacing:'-1.5px', lineHeight:1.08, marginBottom:20 }}>
+            Reviews, made<br/><em style={{ fontStyle:'italic', color:'rgba(44,95,46,0.9)' }}>trustworthy.</em>
           </h2>
-          <p style={{ fontSize:15, color:'#78716C', marginBottom:32, lineHeight:1.6 }}>No ads. No paid placements. No compromises.</p>
-          <Link href="/search" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'linear-gradient(135deg,#5B4FCF,#7C6FCD)', color:'#fff', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:14, textDecoration:'none', boxShadow:'0 8px 24px rgba(91,79,207,0.28)', transition:'all 0.2s' }}
-            onMouseEnter={e=>{e.currentTarget.style.boxShadow='0 12px 32px rgba(91,79,207,0.38)';e.currentTarget.style.transform='translateY(-2px)'}}
-            onMouseLeave={e=>{e.currentTarget.style.boxShadow='0 8px 24px rgba(91,79,207,0.28)';e.currentTarget.style.transform='translateY(0)'}}>
-            Ask AI Now →
+          <p style={{ fontSize:15, color:'rgba(248,246,241,0.5)', marginBottom:40, lineHeight:1.8, letterSpacing:'0.02em', fontWeight:300 }}>
+            One honest score across India&apos;s top platforms. Always free.
+          </p>
+          <Link href="/search"
+            style={{ display:'inline-flex', alignItems:'center', gap:10, background:'var(--bg)', color:'var(--ink)', fontFamily:'var(--font-sans)', fontWeight:500, fontSize:14, letterSpacing:'0.03em', padding:'15px 36px', borderRadius:'var(--radius-xl)', textDecoration:'none', transition:'all 0.3s cubic-bezier(0.22,1,0.36,1)' }}
+            onMouseEnter={e=>{e.currentTarget.style.background='var(--accent)';e.currentTarget.style.color='var(--bg)';e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow='0 12px 32px rgba(44,95,46,0.35)'}}
+            onMouseLeave={e=>{e.currentTarget.style.background='var(--bg)';e.currentTarget.style.color='var(--ink)';e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='none'}}>
+            Ask AI Now
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </Link>
         </div>
       </section>
 
       {/* Footer */}
-      <footer style={{ background:'#FFFFFF', borderTop:'1px solid rgba(0,0,0,0.07)', padding:'clamp(32px,4vw,48px) clamp(20px,5vw,40px) clamp(20px,3vw,32px)' }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr 1fr', gap:40, marginBottom:40 }}>
+      <footer style={{ background:'var(--ink)', borderTop:'1px solid rgba(248,246,241,0.08)', padding:'clamp(40px,5vw,60px) clamp(20px,5vw,48px) clamp(24px,3vw,36px)' }}>
+        <div style={{ maxWidth:1140, margin:'0 auto' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr 1fr', gap:48, marginBottom:48 }}>
 
-            {/* Brand column */}
             <div>
-              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
-                <div style={{ width:30, height:30, borderRadius:8, background:'linear-gradient(135deg,#5B4FCF,#7C6FCD)', display:'flex', alignItems:'center', justifyContent:'center', boxShadow:'0 2px 10px rgba(91,79,207,0.3)' }}>
-                  <span style={{ color:'#fff', fontSize:13, fontWeight:700 }}>PR</span>
+              <div style={{ display:'flex', alignItems:'center', gap:11, marginBottom:16 }}>
+                <div style={{ width:32, height:32, borderRadius:9, background:'var(--bg)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  <span style={{ color:'var(--ink)', fontSize:12, fontWeight:700, fontFamily:'var(--font-serif)' }}>PR</span>
                 </div>
-                <span style={{ fontWeight:700, fontSize:15, color:'#111110' }}>ProductRating<span style={{ color:'#5B4FCF' }}>.in</span></span>
+                <span style={{ fontFamily:'var(--font-serif)', fontWeight:600, fontSize:16, color:'var(--bg)' }}>
+                  ProductRating<span style={{ color:'rgba(44,95,46,0.8)' }}>.in</span>
+                </span>
               </div>
-              <p style={{ fontSize:13, color:'#78716C', lineHeight:1.75, maxWidth:280, marginBottom:16 }}>
+              <p style={{ fontSize:13, color:'rgba(248,246,241,0.4)', lineHeight:1.85, maxWidth:280, letterSpacing:'0.02em', fontWeight:300, marginBottom:20 }}>
                 India&apos;s AI product intelligence platform. One honest score across 8+ platforms. No ads, no paid placements.
               </p>
-              {/* Trust note */}
-              <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(22,163,74,0.07)', border:'1px solid rgba(22,163,74,0.15)', borderRadius:8, padding:'6px 12px' }}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-                <span style={{ fontSize:11, color:'#16A34A', fontFamily:'Geist Mono, monospace', fontWeight:500 }}>No ads · No paid placements</span>
+              <div style={{ display:'inline-flex', alignItems:'center', gap:7, background:'rgba(44,95,46,0.15)', border:'1px solid rgba(44,95,46,0.25)', borderRadius:'var(--radius-sm)', padding:'6px 14px' }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="rgba(44,95,46,0.9)" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <span style={{ fontSize:11, color:'rgba(44,95,46,0.9)', fontFamily:'var(--font-mono)', letterSpacing:'0.5px' }}>No ads · No paid placements</span>
               </div>
             </div>
 
-            {/* Product links */}
             <div>
-              <p style={{ fontSize:11, color:'#A8A29E', fontFamily:'Geist Mono, monospace', letterSpacing:'1px', textTransform:'uppercase', marginBottom:16 }}>Product</p>
+              <p style={{ fontSize:10, color:'rgba(248,246,241,0.25)', fontFamily:'var(--font-mono)', letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:18 }}>Product</p>
               {[['Search','/search'],['How it works','/#how'],['About','/about']].map(([l,h]) => (
-                <Link key={l} href={h} style={{ display:'block', fontSize:13, color:'#57534E', marginBottom:10, transition:'color .15s' }}
-                  onMouseEnter={e=>(e.currentTarget.style.color='#111110')}
-                  onMouseLeave={e=>(e.currentTarget.style.color='#57534E')}>{l}</Link>
+                <Link key={l} href={h} style={{ display:'block', fontSize:13, color:'rgba(248,246,241,0.45)', marginBottom:12, transition:'color .2s', letterSpacing:'0.02em', fontWeight:300 }}
+                  onMouseEnter={e=>(e.currentTarget.style.color='rgba(248,246,241,0.9)')}
+                  onMouseLeave={e=>(e.currentTarget.style.color='rgba(248,246,241,0.45)')}>
+                  {l}
+                </Link>
               ))}
             </div>
 
-            {/* Legal links */}
             <div>
-              <p style={{ fontSize:11, color:'#A8A29E', fontFamily:'Geist Mono, monospace', letterSpacing:'1px', textTransform:'uppercase', marginBottom:16 }}>Legal</p>
-              {[['Privacy Policy','/privacy'],['Contact','/contact'],['Terms','/privacy']].map(([l,h]) => (
-                <Link key={l} href={h} style={{ display:'block', fontSize:13, color:'#57534E', marginBottom:10, transition:'color .15s' }}
-                  onMouseEnter={e=>(e.currentTarget.style.color='#111110')}
-                  onMouseLeave={e=>(e.currentTarget.style.color='#57534E')}>{l}</Link>
+              <p style={{ fontSize:10, color:'rgba(248,246,241,0.25)', fontFamily:'var(--font-mono)', letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:18 }}>Legal</p>
+              {[['Privacy Policy','/privacy'],['Contact','/contact'],['About','/about']].map(([l,h]) => (
+                <Link key={l} href={h} style={{ display:'block', fontSize:13, color:'rgba(248,246,241,0.45)', marginBottom:12, transition:'color .2s', letterSpacing:'0.02em', fontWeight:300 }}
+                  onMouseEnter={e=>(e.currentTarget.style.color='rgba(248,246,241,0.9)')}
+                  onMouseLeave={e=>(e.currentTarget.style.color='rgba(248,246,241,0.45)')}>
+                  {l}
+                </Link>
               ))}
             </div>
           </div>
 
-          {/* Bottom bar */}
-          <div style={{ borderTop:'1px solid rgba(0,0,0,0.06)', paddingTop:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12 }}>
-            <span style={{ fontSize:12, color:'#A8A29E', fontFamily:'Geist Mono, monospace' }}>© 2025 ProductRating.in · 🇮🇳 Built in India</span>
-            <span style={{ fontSize:12, color:'#C4B9AD', fontFamily:'Geist Mono, monospace' }}>AI Product Intelligence</span>
+          <div style={{ borderTop:'1px solid rgba(248,246,241,0.07)', paddingTop:24, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12 }}>
+            <span style={{ fontSize:12, color:'rgba(248,246,241,0.25)', fontFamily:'var(--font-mono)', letterSpacing:'0.3px' }}>© 2025 ProductRating.in · 🇮🇳 Built in India</span>
+            <span style={{ fontSize:12, color:'rgba(248,246,241,0.2)', fontFamily:'var(--font-mono)', letterSpacing:'0.3px' }}>AI Product Intelligence</span>
           </div>
         </div>
       </footer>
