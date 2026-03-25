@@ -95,7 +95,7 @@ export default function Hero() {
 
         {/* #3 HEADLINE — 10-15% bigger, controlled weight */}
         <h1 style={{
-          fontSize:'clamp(48px,8vw,90px)',  /* bigger */,
+          fontSize:'clamp(48px,8vw,90px)',
           fontWeight:700,                       /* #11 not 800 — calmer */
           lineHeight:1.04,
           letterSpacing:'-2.5px',
@@ -114,11 +114,11 @@ export default function Hero() {
         <p style={{
           fontSize:'clamp(15px,2vw,18px)',
           fontWeight:300,
-          color:'#777571',       /* lighter subtext */,
+          color:'#777571',
           lineHeight:1.8,
           letterSpacing:'0.025em',    /* #3 wider spacing */
           maxWidth:460,
-          margin:'0 auto 64px',       /* #2 more gap headline→search */,
+          margin:'0 auto 64px',
           animation:'fade-up 0.7s 0.16s ease both',
           opacity:0,animationFillMode:'forwards'
         }}>
