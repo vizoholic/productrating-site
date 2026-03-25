@@ -1,6 +1,6 @@
-// src/app/layout.tsx
 import type { Metadata } from 'next'
 import '../styles/globals.css'
+import { Analytics } from '@vercel/analytics/next'
 
 export const metadata: Metadata = {
   title: {
@@ -37,14 +37,17 @@ export const metadata: Metadata = {
       'max-snippet': -1,
     },
   },
-  // ADD YOUR GOOGLE SEARCH CONSOLE VERIFICATION CODE HERE:
+  // ADD YOUR GOOGLE SEARCH CONSOLE VERIFICATION CODE BELOW:
   // verification: { google: 'YOUR_CODE_FROM_SEARCH_CONSOLE' },
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {children}
+        <Analytics />
+      </body>
     </html>
   )
 }
