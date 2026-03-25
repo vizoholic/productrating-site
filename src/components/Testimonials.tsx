@@ -16,7 +16,7 @@ export default function Testimonials() {
       background:'var(--bg-2)',borderTop:'1px solid rgba(0,0,0,0.06)'
     }}>
       <div style={{maxWidth:720,margin:'0 auto',textAlign:'center'}}>
-        <p style={{fontSize:11,fontWeight:500,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'2px',textTransform:'uppercase',marginBottom:56}}>
+        <p style={{fontSize:11,fontWeight:400,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'2px',textTransform:'uppercase',marginBottom:64}}>
           Verified users
         </p>
 
