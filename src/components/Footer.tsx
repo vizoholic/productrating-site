@@ -5,11 +5,11 @@ export default function Footer() {
   return (
     <>
       {/* CTA — #2 generous spacing */}
-      <section style={{padding:'clamp(96px,11vw,128px) clamp(24px,5vw,48px)',background:'var(--bg)',borderTop:'1px solid rgba(0,0,0,0.06)',textAlign:'center',position:'relative',overflow:'hidden'}}>
+      <section style={{padding:'clamp(96px,11vw,128px) clamp(24px,5vw,48px)',background:'var(--bg)',borderTop:'none',textAlign:'center',position:'relative',overflow:'hidden'}}>
         <div style={{position:'absolute',inset:0,background:'radial-gradient(ellipse at center, rgba(91,79,207,0.05) 0%, transparent 60%)',pointerEvents:'none'}}/>
         <div style={{position:'relative',maxWidth:540,margin:'0 auto'}}>
           {/* #3 bigger headline */}
-          <h2 style={{fontSize:'clamp(30px,5.5vw,58px)',fontWeight:700,letterSpacing:'-2px',color:'var(--ink)',lineHeight:1.04,marginBottom:18}}>
+          <h2 style={{fontSize:'clamp(34px,5.5vw,64px)',fontWeight:700,letterSpacing:'-2.5px',color:'var(--ink)',lineHeight:1.04,marginBottom:18}}>
             Reviews, made trustworthy.<br/>
             <span style={{background:'linear-gradient(135deg,var(--accent),var(--accent-2))',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>
               Free, forever.
