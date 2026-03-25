@@ -88,7 +88,7 @@ export default function Features() {
                 boxShadow:'var(--shadow-card)',
                 transition:`transform var(--t-mid) var(--ease), box-shadow var(--t-mid) var(--ease)`,
               }}
-                onMouseEnter={e=>{(e.currentTarget as HTMLDivElement).style.transform='translateY(-5px)';(e.currentTarget as HTMLDivElement).style.boxShadow='var(--shadow-hover)'}}
+                onMouseEnter={e=>{(e.currentTarget as HTMLDivElement).style.transform='translateY(-6px)';(e.currentTarget as HTMLDivElement).style.boxShadow='0 16px 40px rgba(0,0,0,0.11), 0 4px 10px rgba(0,0,0,0.06)'}}
                 onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.transform='translateY(0)';(e.currentTarget as HTMLDivElement).style.boxShadow='var(--shadow-card)'}}>
                 {/* Subtle bg glow — #8 visual depth */}
                 <div style={{position:'absolute',top:-60,right:-60,width:240,height:240,borderRadius:'50%',background:'rgba(91,79,207,0.04)',filter:'blur(48px)',pointerEvents:'none'}}/>
@@ -187,7 +187,7 @@ export default function Features() {
         <div style={{maxWidth:1120,margin:'0 auto'}}>
           <R style={{textAlign:'center',marginBottom:64}}>
             <p style={{fontSize:11,fontWeight:500,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'2px',textTransform:'uppercase',marginBottom:14}}>Process</p>
-            <h2 style={{fontSize:'clamp(26px,4.5vw,50px)',fontWeight:700,color:'var(--ink)',letterSpacing:'-1.5px',lineHeight:1.06}}>From millions of reviews<br/>to one answer.</h2>
+            <h2 style={{fontSize:'clamp(30px,4.5vw,54px)',fontWeight:700,color:'var(--ink)',letterSpacing:'-2px',lineHeight:1.04}}>From millions of reviews<br/>to one answer.</h2>
           </R>
 
           {/* #1 DEPTH — each step card on its own plane */}
