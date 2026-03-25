@@ -7,142 +7,171 @@ import Nav from '@/components/Nav'
 type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; pros:string[]; cons:string[]; avoid_if:string }
 type SerpProduct = { title:string; price:string; rating:number|null; source:string; link:string; thumbnail:string; delivery:string }
 
-function getDirectUrl(seller:string, name:string):string{
+function getDirectUrl(seller:string, name:string):string {
   const q=encodeURIComponent(name),s=(seller||'').toLowerCase().trim()
-  const known:[string[],(q:string)=>string][]=[
-    [['amazon'],q=>`https://www.amazon.in/s?k=${q}`],
-    [['flipkart'],q=>`https://www.flipkart.com/search?q=${q}`],
-    [['nykaa'],q=>`https://www.nykaa.com/search/result/?q=${q}`],
-    [['meesho'],q=>`https://www.meesho.com/search?q=${q}`],
-    [['croma'],q=>`https://www.croma.com/searchB?q=${q}`],
-    [['jiomart'],q=>`https://www.jiomart.com/search/${q}`],
-    [['myntra'],q=>`https://www.myntra.com/${q}`],
-    [['tata cliq','tatacliq'],q=>`https://www.tatacliq.com/search/?searchCategory=all&text=${q}`],
-    [['bigbasket'],q=>`https://www.bigbasket.com/ps/?q=${q}`],
+  const map:[string[],(q:string)=>string][]=[
+    [['amazon'],q=>`https://www.amazon.in/s?k=${q}`],[['flipkart'],q=>`https://www.flipkart.com/search?q=${q}`],
+    [['nykaa'],q=>`https://www.nykaa.com/search/result/?q=${q}`],[['meesho'],q=>`https://www.meesho.com/search?q=${q}`],
+    [['croma'],q=>`https://www.croma.com/searchB?q=${q}`],[['jiomart'],q=>`https://www.jiomart.com/search/${q}`],
+    [['myntra'],q=>`https://www.myntra.com/${q}`],[['tata cliq','tatacliq'],q=>`https://www.tatacliq.com/search/?text=${q}`],
     [['reliance'],q=>`https://www.reliancedigital.in/search?q=${q}`],
-    [['vijay'],q=>`https://www.vijaysales.com/search/${q}`],
-    [['ajio'],q=>`https://www.ajio.com/search/?text=${q}`],
-    [['1mg'],q=>`https://www.1mg.com/search/all?name=${q}`],
-    [['decathlon'],q=>`https://www.decathlon.in/search?Ntt=${q}`],
   ]
-  for(const [keys,fn] of known) if(keys.some(k=>s.includes(k))) return fn(q)
-  const dm=s.match(/([a-z0-9][a-z0-9-]*\.[a-z]{2,})/)
-  if(dm) return `https://www.${dm[1]}/search?q=${q}`
+  for(const [keys,fn] of map) if(keys.some(k=>s.includes(k))) return fn(q)
   return `https://www.amazon.in/s?k=${q}`
 }
 
-function RatingBar({score}:{score:number}){
+// Custom thin-line rating arc
+function RatingArc({score,size=64}:{score:number;size?:number}){
+  const r=(size/2)-5, circ=2*Math.PI*r, dash=circ*(score/5)
   return(
-    <div style={{display:'flex',alignItems:'center',gap:8}}>
-      <div style={{flex:1,height:5,background:'#F0EFed',borderRadius:3,overflow:'hidden'}}>
-        <div style={{width:`${(score/5)*100}%`,height:'100%',background:'linear-gradient(90deg,#16A34A,#22C55E)',borderRadius:3,transition:'width 0.6s ease'}}/>
+    <div style={{position:'relative',width:size,height:size,flexShrink:0}}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{transform:'rotate(-90deg)'}}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--bg-3)" strokeWidth="2.5"/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"/>
+      </svg>
+      <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column'}}>
+        <span style={{fontFamily:'var(--font-serif)',fontSize:size/3.2,fontWeight:700,color:'var(--ink)',lineHeight:1,letterSpacing:'-1px'}}>{score.toFixed(1)}</span>
+        <span style={{fontSize:8,color:'var(--ink-4)',fontFamily:'var(--font-mono)'}}>/ 5</span>
       </div>
-      <span style={{fontSize:13,fontWeight:700,color:'#16A34A',minWidth:28,fontFamily:'Geist Mono, monospace'}}>{score.toFixed(1)}</span>
+    </div>
+  )
+}
+
+// Editor seal badge
+function EditorSeal({label}:{label:string}){
+  return(
+    <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'var(--gold-bg)',border:'1px solid rgba(139,105,20,0.22)',borderRadius:'var(--radius-sm)',padding:'5px 12px'}}>
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      <span style={{fontSize:10,fontWeight:500,color:'var(--gold)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>{label}</span>
+    </div>
+  )
+}
+
+// Sticky verdict bar — appears after scrolling past first card
+function VerdictBar({product,visible}:{product:AiProduct|null;visible:boolean}){
+  if(!product) return null
+  const url=getDirectUrl(product.seller,product.name)
+  return(
+    <div style={{position:'fixed',top:60,left:0,right:0,zIndex:80,transform:visible?'translateY(0)':'translateY(-110%)',transition:'transform 0.4s cubic-bezier(0.22,1,0.36,1)',background:'rgba(248,246,241,0.97)',backdropFilter:'blur(20px)',borderBottom:'1px solid var(--border)',padding:'12px clamp(20px,5vw,48px)',display:'flex',alignItems:'center',gap:16,flexWrap:'wrap'}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
+        <div style={{fontFamily:'var(--font-serif)',fontSize:22,fontWeight:700,color:'var(--accent)',letterSpacing:'-1px',flexShrink:0}}>{product.rating.toFixed(1)}</div>
+        <div style={{minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:500,color:'var(--ink)',letterSpacing:'0.01em',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{product.name}</div>
+          <div style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>#1 Best Pick · {product.price}</div>
+        </div>
+      </div>
+      <a href={url} target="_blank" rel="noopener noreferrer"
+        style={{display:'inline-flex',alignItems:'center',gap:8,background:'var(--ink)',color:'var(--bg)',fontSize:12,fontWeight:500,padding:'9px 20px',borderRadius:'var(--radius)',textDecoration:'none',letterSpacing:'0.03em',flexShrink:0,transition:'background 0.2s'}}
+        onMouseEnter={e=>(e.currentTarget.style.background='var(--accent)')}
+        onMouseLeave={e=>(e.currentTarget.style.background='var(--ink)')}>
+        Check Price
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>
     </div>
   )
 }
 
 function AiCard({p,idx}:{p:AiProduct;idx:number}){
-  const [open,setOpen]=useState(idx===0)
-  const medals=['🥇','🥈','🥉']
-  const rankLabel=['#1 Best Pick','#2 Runner Up','#3 Third Pick'][idx]||`#${idx+1}`
-  const rankColors=['#5B4FCF','#57534E','#A0782A']
-  const platRating=Math.min(5,p.platform_rating||Math.min(5,p.rating+0.3))
-  const aiRating=Math.min(5,Math.max(1,p.rating))
+  const [open,setOpen]=useState(true)
   const buyUrl=getDirectUrl(p.seller,p.name)
+  const platRating=Math.min(5,p.platform_rating||Math.min(5,p.rating+0.4))
+  const aiRating=Math.min(5,Math.max(1,p.rating))
+  const rankLabel=['#1 Best Pick','#2 Runner Up','#3 Third Pick'][idx]||`#${idx+1}`
+  const isTop=idx===0
 
   return(
-    <div style={{background:'#FFFFFF',border:`1.5px solid ${idx===0?'rgba(91,79,207,0.25)':'rgba(0,0,0,0.08)'}`,borderRadius:18,overflow:'hidden',transition:'all 0.25s ease',display:'flex',flexDirection:'column',boxShadow:idx===0?'0 8px 32px rgba(91,79,207,0.1), 0 2px 8px rgba(0,0,0,0.06)':'0 2px 8px rgba(0,0,0,0.06)',animation:`card-in 0.4s ${idx*0.1}s ease both`}}
-      onMouseEnter={e=>{(e.currentTarget as HTMLDivElement).style.transform='translateY(-4px)';(e.currentTarget as HTMLDivElement).style.boxShadow=idx===0?'0 16px 48px rgba(91,79,207,0.15), 0 4px 12px rgba(0,0,0,0.08)':'0 12px 32px rgba(0,0,0,0.1)'}}
-      onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.transform='translateY(0)';(e.currentTarget as HTMLDivElement).style.boxShadow=idx===0?'0 8px 32px rgba(91,79,207,0.1), 0 2px 8px rgba(0,0,0,0.06)':'0 2px 8px rgba(0,0,0,0.06)'}}>
+    <div style={{background:'var(--bg-1)',border:`1.5px solid ${isTop?'var(--border-hi)':'var(--border)'}`,borderRadius:'var(--radius-xl)',overflow:'hidden',transition:'transform 0.35s cubic-bezier(0.22,1,0.36,1), box-shadow 0.35s ease',boxShadow:isTop?'var(--shadow-lg)':'var(--shadow-sm)',animation:`card-in 0.5s ${idx*0.12}s ease both`}}
+      onMouseEnter={e=>{(e.currentTarget as HTMLDivElement).style.transform='translateY(-5px)';(e.currentTarget as HTMLDivElement).style.boxShadow='var(--shadow-xl)'}}
+      onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.transform='translateY(0)';(e.currentTarget as HTMLDivElement).style.boxShadow=isTop?'var(--shadow-lg)':'var(--shadow-sm)'}}>
 
-      {/* Rank bar */}
-      <div style={{padding:'10px 20px',background:idx===0?'rgba(91,79,207,0.06)':'#FAFAF9',borderBottom:'1px solid rgba(0,0,0,0.05)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <span style={{fontSize:11,fontWeight:700,color:rankColors[idx]||'#A8A29E',fontFamily:'Geist Mono, monospace',letterSpacing:'1px',textTransform:'uppercase'}}>{rankLabel}</span>
-        <span style={{fontSize:18}}>{medals[idx]||''}</span>
+      {/* Rank header */}
+      <div style={{padding:'12px 24px',background:isTop?'var(--bg-2)':'var(--bg)',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+        <span style={{fontSize:10,fontWeight:500,color:isTop?'var(--ink)':'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase'}}>{rankLabel}</span>
+        {isTop && <EditorSeal label="Editor's Choice"/>}
       </div>
 
-      <div style={{padding:22,flex:1}}>
-        {p.badge&&<span style={{display:'inline-block',fontSize:11,fontWeight:600,color:'#16A34A',background:'rgba(22,163,74,0.08)',border:'1px solid rgba(22,163,74,0.2)',borderRadius:100,padding:'2px 12px',marginBottom:12,fontFamily:'Geist Mono, monospace'}}>● {p.badge}</span>}
+      <div style={{padding:'24px 24px 0'}}>
+        {p.badge&&<span style={{display:'inline-block',fontSize:10,fontWeight:500,color:'var(--accent)',background:'var(--accent-bg)',border:'1px solid var(--accent-border)',borderRadius:100,padding:'3px 12px',marginBottom:14,fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>● {p.badge}</span>}
 
-        <h3 style={{fontWeight:700,fontSize:17,color:'#111110',lineHeight:1.3,marginBottom:14}}>{p.name}</h3>
+        <h3 style={{fontFamily:'var(--font-serif)',fontWeight:600,fontSize:19,color:'var(--ink)',lineHeight:1.3,letterSpacing:'-0.3px',marginBottom:14}}>{p.name}</h3>
 
         {/* Price */}
-        <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:18,flexWrap:'wrap'}}>
-          <span style={{fontSize:28,fontWeight:800,color:'#5B4FCF',letterSpacing:'-1px',fontFamily:'Sora,sans-serif'}}>{p.price}</span>
-          {p.seller&&<span style={{fontSize:12,color:'#78716C',background:'#F5F4F2',borderRadius:6,padding:'3px 10px',fontWeight:500,border:'1px solid rgba(0,0,0,0.07)'}}>{p.seller}</span>}
+        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:22,flexWrap:'wrap'}}>
+          <span style={{fontFamily:'var(--font-serif)',fontSize:30,fontWeight:700,color:'var(--ink)',letterSpacing:'-1.5px',lineHeight:1}}>{p.price}</span>
+          {p.seller&&<span style={{fontSize:12,color:'var(--ink-3)',background:'var(--bg-2)',borderRadius:'var(--radius-sm)',padding:'4px 12px',fontFamily:'var(--font-sans)',letterSpacing:'0.02em',border:'1px solid var(--border)'}}>{p.seller}</span>}
         </div>
 
-        {/* AI Score vs Platform — THE USP */}
-        <div style={{background:'#F9F8F7',borderRadius:14,padding:18,marginBottom:16,border:'1px solid rgba(0,0,0,0.06)'}}>
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:14}}>
+        {/* Score block — custom rating arc + comparison */}
+        <div style={{background:'var(--bg-2)',borderRadius:'var(--radius-lg)',padding:20,marginBottom:18,border:'1px solid var(--border)'}}>
+          <div style={{display:'flex',gap:20,alignItems:'center',marginBottom:16}}>
             <div>
-              <div style={{fontSize:10,color:'#A8A29E',fontFamily:'Geist Mono, monospace',letterSpacing:'0.5px',marginBottom:6}}>
-                PR AI SCORE {p.reviews&&<span>· {p.reviews} reviews</span>}
-              </div>
-              <div style={{display:'flex',alignItems:'baseline',gap:4}}>
-                <span style={{fontSize:40,fontWeight:800,color:'#16A34A',lineHeight:1,fontFamily:'Sora,sans-serif',letterSpacing:'-2px'}}>{aiRating.toFixed(1)}</span>
-                <span style={{fontSize:14,color:'#A8A29E'}}>/5</span>
-              </div>
+              <div style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',marginBottom:10}}>PR AI Score · {p.reviews||'—'} reviews</div>
+              <RatingArc score={aiRating} size={64}/>
             </div>
-            <div style={{display:'flex',gap:2,paddingTop:8}}>
-              {[1,2,3,4,5].map(n=>(
-                <svg key={n} width="15" height="15" viewBox="0 0 24 24" fill={n<=Math.round(aiRating)?'#16A34A':'#E7E5E4'}>
-                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-                </svg>
-              ))}
-            </div>
-          </div>
-          <RatingBar score={aiRating}/>
-
-          {/* Comparison */}
-          <div style={{marginTop:14,display:'flex',alignItems:'center',gap:8,padding:'10px 14px',background:'#FFFFFF',borderRadius:10,border:'1px solid rgba(0,0,0,0.06)'}}>
             <div style={{flex:1}}>
-              <div style={{fontSize:10,color:'#A8A29E',fontFamily:'Geist Mono, monospace',marginBottom:2}}>PLATFORM SHOWS</div>
-              <div style={{fontSize:14,fontWeight:700,color:'#DC2626'}}>{platRating.toFixed(1)} ⭐ <span style={{fontSize:10,color:'#A8A29E',fontWeight:400}}>incl. fakes</span></div>
-            </div>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#D6D3D1" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-            <div style={{flex:1}}>
-              <div style={{fontSize:10,color:'#A8A29E',fontFamily:'Geist Mono, monospace',marginBottom:2}}>REAL SCORE</div>
-              <div style={{fontSize:14,fontWeight:700,color:'#16A34A'}}>{aiRating.toFixed(1)} ⭐ <span style={{fontSize:10,color:'#A8A29E',fontWeight:400}}>AI-adjusted</span></div>
+              {/* Custom progress bar */}
+              <div style={{marginBottom:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)',marginBottom:5}}>
+                  <span>AI-adjusted</span><span>{aiRating.toFixed(1)}/5</span>
+                </div>
+                <div style={{height:3,background:'var(--bg-3)',borderRadius:2,overflow:'hidden'}}>
+                  <div style={{height:'100%',width:`${(aiRating/5)*100}%`,background:'var(--accent)',borderRadius:2,transition:'width 1s cubic-bezier(0.22,1,0.36,1)'}}/>
+                </div>
+              </div>
+              {/* Platform vs Real */}
+              <div style={{background:'var(--bg-1)',borderRadius:'var(--radius-sm)',padding:'10px 14px',border:'1px solid var(--border)'}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,fontSize:12}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',marginBottom:3}}>PLATFORM</div>
+                    <span style={{color:'#B91C1C',fontWeight:600,fontFamily:'var(--font-serif)',fontSize:15}}>{platRating.toFixed(1)}</span><span style={{color:'var(--ink-4)',fontSize:10,marginLeft:3}}>with fakes</span>
+                  </div>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',marginBottom:3}}>REAL</div>
+                    <span style={{color:'var(--accent)',fontWeight:600,fontFamily:'var(--font-serif)',fontSize:15}}>{aiRating.toFixed(1)}</span><span style={{color:'var(--ink-4)',fontSize:10,marginLeft:3}}>AI-adjusted</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Why this result */}
         {p.reason&&(
-          <div style={{marginBottom:14,padding:'12px 16px',background:'rgba(91,79,207,0.05)',borderRadius:10,borderLeft:'3px solid rgba(91,79,207,0.4)'}}>
-            <div style={{fontSize:10,color:'#5B4FCF',fontFamily:'Geist Mono, monospace',letterSpacing:'1px',marginBottom:4}}>WHY THIS RESULT</div>
-            <p style={{fontSize:13,color:'#57534E',lineHeight:1.65}}>{p.reason}</p>
+          <div style={{marginBottom:16,padding:'14px 18px',background:'var(--bg)',borderRadius:'var(--radius)',borderLeft:'2px solid var(--accent)'}}>
+            <div style={{fontSize:9,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:6}}>Why this result</div>
+            <p style={{fontSize:13,color:'var(--ink-2)',lineHeight:1.75,letterSpacing:'0.02em',fontWeight:300}}>{p.reason}</p>
           </div>
         )}
 
-        {/* Pros/Cons toggle */}
+        {/* Pros / Cons / Avoid — collapsible */}
         {(p.pros?.length>0||p.cons?.length>0||p.avoid_if)&&(
-          <div>
+          <div style={{marginBottom:4}}>
             <button onClick={()=>setOpen(!open)}
-              style={{fontSize:12,color:'#5B4FCF',fontWeight:500,background:'none',border:'none',cursor:'pointer',padding:'0 0 12px',display:'flex',alignItems:'center',gap:5,fontFamily:'Geist Mono, monospace',letterSpacing:'0.5px'}}>
-              <span style={{display:'inline-block',transform:open?'rotate(90deg)':'rotate(0)',transition:'transform 0.2s',fontSize:10}}>▶</span>
-              {open?'HIDE DETAILS':'PROS · CONS · AVOID IF'}
+              style={{fontSize:11,color:'var(--ink-3)',fontWeight:400,background:'none',border:'none',cursor:'pointer',padding:'0 0 12px',display:'flex',alignItems:'center',gap:6,fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',transition:'color 0.2s'}}
+              onMouseEnter={e=>(e.currentTarget.style.color='var(--ink)')}
+              onMouseLeave={e=>(e.currentTarget.style.color='var(--ink-3)')}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{transform:open?'rotate(90deg)':'rotate(0)',transition:'transform 0.2s'}}><path d="M9 18l6-6-6-6"/></svg>
+              {open?'Hide details':'Pros · Cons · Avoid if'}
             </button>
             {open&&(
-              <div style={{display:'flex',flexDirection:'column',gap:8}}>
+              <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:8}}>
                 {p.pros?.length>0&&(
-                  <div style={{background:'rgba(22,163,74,0.06)',border:'1px solid rgba(22,163,74,0.15)',borderRadius:10,padding:'12px 16px'}}>
-                    <div style={{fontSize:10,color:'#16A34A',fontFamily:'Geist Mono, monospace',letterSpacing:'1px',marginBottom:8}}>PROS</div>
-                    {p.pros.map((pro,i)=><div key={i} style={{fontSize:13,color:'#374151',display:'flex',gap:8,marginBottom:i<p.pros.length-1?6:0}}><span style={{color:'#16A34A',flexShrink:0}}>+</span>{pro}</div>)}
+                  <div style={{background:'rgba(44,95,46,0.05)',border:'1px solid rgba(44,95,46,0.12)',borderRadius:'var(--radius)',padding:'14px 18px'}}>
+                    <div style={{fontSize:9,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',marginBottom:10}}>Pros</div>
+                    {p.pros.map((pro,i)=><div key={i} style={{fontSize:13,color:'var(--ink-2)',display:'flex',gap:10,marginBottom:i<p.pros.length-1?7:0,lineHeight:1.65,letterSpacing:'0.01em',fontWeight:300}}><span style={{color:'var(--accent)',flexShrink:0,marginTop:1}}>+</span>{pro}</div>)}
                   </div>
                 )}
                 {p.cons?.length>0&&(
-                  <div style={{background:'rgba(220,38,38,0.05)',border:'1px solid rgba(220,38,38,0.12)',borderRadius:10,padding:'12px 16px'}}>
-                    <div style={{fontSize:10,color:'#DC2626',fontFamily:'Geist Mono, monospace',letterSpacing:'1px',marginBottom:8}}>CONS</div>
-                    {p.cons.map((con,i)=><div key={i} style={{fontSize:13,color:'#374151',display:'flex',gap:8}}><span style={{color:'#DC2626',flexShrink:0}}>−</span>{con}</div>)}
+                  <div style={{background:'rgba(185,28,28,0.04)',border:'1px solid rgba(185,28,28,0.1)',borderRadius:'var(--radius)',padding:'14px 18px'}}>
+                    <div style={{fontSize:9,color:'#B91C1C',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',marginBottom:10}}>Cons</div>
+                    {p.cons.map((con,i)=><div key={i} style={{fontSize:13,color:'var(--ink-2)',display:'flex',gap:10,lineHeight:1.65,letterSpacing:'0.01em',fontWeight:300,marginBottom:i<p.cons.length-1?7:0}}><span style={{color:'#B91C1C',flexShrink:0,marginTop:1}}>−</span>{con}</div>)}
                   </div>
                 )}
                 {p.avoid_if&&(
-                  <div style={{background:'rgba(180,83,9,0.06)',border:'1px solid rgba(180,83,9,0.14)',borderRadius:10,padding:'12px 16px'}}>
-                    <span style={{fontSize:10,color:'#B45309',fontFamily:'Geist Mono, monospace',letterSpacing:'1px'}}>AVOID IF </span>
-                    <span style={{fontSize:13,color:'#374151'}}>{p.avoid_if}</span>
+                  <div style={{background:'var(--gold-bg)',border:'1px solid rgba(139,105,20,0.15)',borderRadius:'var(--radius)',padding:'14px 18px'}}>
+                    <span style={{fontSize:9,color:'var(--gold)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase'}}>Avoid if </span>
+                    <span style={{fontSize:13,color:'var(--ink-2)',lineHeight:1.65,letterSpacing:'0.01em',fontWeight:300}}>{p.avoid_if}</span>
                   </div>
                 )}
               </div>
@@ -151,12 +180,12 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
         )}
       </div>
 
-      {/* Buy button */}
+      {/* Buy CTA */}
       <a href={buyUrl} target="_blank" rel="noopener noreferrer"
-        style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'14px 20px',background:idx===0?'linear-gradient(135deg,#5B4FCF,#7C6FCD)':'#F5F4F2',color:idx===0?'#fff':'#57534E',fontSize:14,fontWeight:600,textDecoration:'none',transition:'all 0.2s',borderTop:'1px solid rgba(0,0,0,0.06)'}}
-        onMouseEnter={e=>{e.currentTarget.style.background=idx===0?'linear-gradient(135deg,#6B5FDF,#8C7EDD)':'#EEECE9'}}
-        onMouseLeave={e=>{e.currentTarget.style.background=idx===0?'linear-gradient(135deg,#5B4FCF,#7C6FCD)':'#F5F4F2'}}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'15px 24px',background:isTop?'var(--ink)':'var(--bg-2)',color:isTop?'var(--bg)':'var(--ink-2)',fontSize:13,fontWeight:500,letterSpacing:'0.03em',textDecoration:'none',transition:'background 0.25s',borderTop:'1px solid var(--border)',fontFamily:'var(--font-sans)'}}
+        onMouseEnter={e=>{e.currentTarget.style.background='var(--accent)';e.currentTarget.style.color='var(--bg)'}}
+        onMouseLeave={e=>{e.currentTarget.style.background=isTop?'var(--ink)':'var(--bg-2)';e.currentTarget.style.color=isTop?'var(--bg)':'var(--ink-2)'}}>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         Search on {p.seller||'Amazon'}
       </a>
     </div>
@@ -167,19 +196,19 @@ function SerpCard({p}:{p:SerpProduct}){
   const url=getDirectUrl(p.source,p.title)
   return(
     <a href={url} target="_blank" rel="noopener noreferrer"
-      style={{display:'flex',gap:14,padding:'14px 18px',background:'#FFFFFF',border:'1.5px solid rgba(0,0,0,0.07)',borderRadius:14,textDecoration:'none',transition:'all 0.15s',alignItems:'flex-start',boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}
-      onMouseEnter={e=>{(e.currentTarget as HTMLAnchorElement).style.boxShadow='0 8px 24px rgba(0,0,0,0.08)';(e.currentTarget as HTMLAnchorElement).style.borderColor='rgba(91,79,207,0.25)';(e.currentTarget as HTMLAnchorElement).style.transform='translateX(4px)'}}
-      onMouseLeave={e=>{(e.currentTarget as HTMLAnchorElement).style.boxShadow='0 1px 3px rgba(0,0,0,0.04)';(e.currentTarget as HTMLAnchorElement).style.borderColor='rgba(0,0,0,0.07)';(e.currentTarget as HTMLAnchorElement).style.transform='translateX(0)'}}>
-      {p.thumbnail&&<img src={p.thumbnail} alt="" style={{width:48,height:48,objectFit:'contain',borderRadius:8,background:'#F5F4F2',flexShrink:0,border:'1px solid rgba(0,0,0,0.06)'}} onError={e=>{(e.target as HTMLImageElement).style.display='none'}}/>}
+      style={{display:'flex',gap:14,padding:'16px 20px',background:'var(--bg-1)',border:'1.5px solid var(--border)',borderRadius:'var(--radius)',textDecoration:'none',transition:'all 0.25s cubic-bezier(0.22,1,0.36,1)',alignItems:'flex-start',boxShadow:'var(--shadow-xs)'}}
+      onMouseEnter={e=>{(e.currentTarget as HTMLAnchorElement).style.transform='translateX(5px)';(e.currentTarget as HTMLAnchorElement).style.borderColor='var(--border-hi)';(e.currentTarget as HTMLAnchorElement).style.boxShadow='var(--shadow-sm)'}}
+      onMouseLeave={e=>{(e.currentTarget as HTMLAnchorElement).style.transform='translateX(0)';(e.currentTarget as HTMLAnchorElement).style.borderColor='var(--border)';(e.currentTarget as HTMLAnchorElement).style.boxShadow='var(--shadow-xs)'}}>
+      {p.thumbnail&&<img src={p.thumbnail} alt="" style={{width:48,height:48,objectFit:'contain',borderRadius:'var(--radius-sm)',background:'var(--bg-2)',flexShrink:0,border:'1px solid var(--border)',filter:'saturate(0.85)'}} onError={e=>{(e.target as HTMLImageElement).style.display='none'}}/>}
       <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:13,fontWeight:500,color:'#374151',lineHeight:1.4,marginBottom:4}}>{p.title}</div>
-        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-          <span style={{fontSize:16,fontWeight:700,color:'#5B4FCF',fontFamily:'Sora,sans-serif'}}>{p.price}</span>
-          <span style={{fontSize:11,color:'#A8A29E',fontFamily:'Geist Mono, monospace'}}>{p.source}</span>
-          {p.rating&&<span style={{fontSize:11,color:'#16A34A',fontFamily:'Geist Mono, monospace'}}>{Math.min(5,p.rating).toFixed(1)}/5</span>}
+        <div style={{fontSize:13,fontWeight:400,color:'var(--ink-2)',lineHeight:1.55,marginBottom:5,letterSpacing:'0.01em'}}>{p.title}</div>
+        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <span style={{fontFamily:'var(--font-serif)',fontSize:18,fontWeight:700,color:'var(--ink)',letterSpacing:'-0.5px'}}>{p.price}</span>
+          <span style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>{p.source}</span>
+          {p.rating&&<span style={{fontSize:11,color:'var(--accent)',fontFamily:'var(--font-mono)'}}>{Math.min(5,p.rating).toFixed(1)}/5</span>}
         </div>
       </div>
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C4B9AD" strokeWidth="2" strokeLinecap="round" style={{flexShrink:0,marginTop:2}}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.8" style={{flexShrink:0,marginTop:3}}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
     </a>
   )
 }
@@ -198,17 +227,26 @@ function SearchResults(){
   const [voiceError,setVoiceError]=useState('')
   const [transcript,setTranscript]=useState('')
   const [dots,setDots]=useState(1)
+  const [verdictVisible,setVerdictVisible]=useState(false)
   const mediaRef=useRef<MediaRecorder|null>(null)
   const chunksRef=useRef<Blob[]>([])
   const streamRef=useRef<MediaStream|null>(null)
+  const resultsRef=useRef<HTMLDivElement>(null)
 
   useEffect(()=>{if(recState!=='recording')return;const id=setInterval(()=>setDots(d=>d>=3?1:d+1),450);return()=>clearInterval(id)},[recState])
 
+  // Sticky verdict bar trigger
+  useEffect(()=>{
+    const fn=()=>{ if(resultsRef.current){ const rect=resultsRef.current.getBoundingClientRect(); setVerdictVisible(rect.top < -120) } }
+    window.addEventListener('scroll',fn,{passive:true})
+    return()=>window.removeEventListener('scroll',fn)
+  },[])
+
   const doSearch=async(q:string)=>{
     if(!q.trim())return
-    setLoading(true);setCalled(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([])
+    setLoading(true);setCalled(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([]);setVerdictVisible(false)
     try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();setAnswer(d.answer||'');setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
-    catch{setAnswer('Something went wrong.')}finally{setLoading(false)}
+    catch{setAnswer('Something went wrong. Please try again.')}finally{setLoading(false)}
   }
   if(query&&!called&&!loading){doSearch(query);setCalled(true)}
   const submit=(q?:string)=>{const t=(q||input).trim();if(!t)return;router.push(`/search?q=${encodeURIComponent(t)}`);doSearch(t)}
@@ -219,7 +257,7 @@ function SearchResults(){
     if(!navigator.mediaDevices?.getUserMedia){setRecState('error');setVoiceError('Use Chrome.');return}
     let stream:MediaStream
     try{stream=await navigator.mediaDevices.getUserMedia({audio:true});streamRef.current=stream}
-    catch{setRecState('error');setVoiceError('Mic denied.');return}
+    catch{setRecState('error');setVoiceError('Mic access denied.');return}
     const mimes=['audio/webm;codecs=opus','audio/webm','audio/ogg;codecs=opus','audio/ogg']
     const mime=mimes.find(m=>MediaRecorder.isTypeSupported(m))||''
     const rec=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream)
@@ -227,11 +265,10 @@ function SearchResults(){
     rec.ondataavailable=e=>{if(e.data?.size>0)chunksRef.current.push(e.data)}
     rec.onstop=async()=>{
       const total=chunksRef.current.reduce((s,c)=>s+c.size,0)
-      if(!total){setRecState('error');setVoiceError('No audio.');return}
+      if(!total){setRecState('error');setVoiceError('No audio captured.');return}
       const bt=mime?mime.split(';')[0]:'audio/webm'
       const blob=new Blob(chunksRef.current,{type:bt})
-      const form=new FormData()
-      form.append('file',blob,`rec.${bt.includes('ogg')?'ogg':'webm'}`)
+      const form=new FormData();form.append('file',blob,`rec.${bt.includes('ogg')?'ogg':'webm'}`)
       try{const r=await fetch('/api/ask',{method:'POST',body:form});const d=await r.json();if(d.transcript){setTranscript(d.transcript);setInput(d.transcript);setRecState('idle');submit(d.transcript)}else{setRecState('error');setVoiceError(d.error||'Try again.')}}
       catch{setRecState('error');setVoiceError('Network error.')}
     }
@@ -241,73 +278,79 @@ function SearchResults(){
   const isRec=recState==='recording',isProc=recState==='processing',isBusy=isRec||isProc
 
   return(
-    <div style={{maxWidth:1040,margin:'0 auto',padding:'clamp(68px,8vw,80px) clamp(12px,4vw,20px) 100px'}}>
+    <div style={{maxWidth:1040,margin:'0 auto',padding:'clamp(72px,8vw,88px) clamp(16px,4vw,24px) 100px'}}>
+
+      {/* Sticky verdict bar */}
+      <VerdictBar product={aiProducts[0]||null} visible={verdictVisible&&aiProducts.length>0}/>
 
       {/* Sticky search */}
-      <div style={{position:'sticky',top:56,zIndex:50,paddingTop:12,paddingBottom:12,background:'rgba(250,250,249,0.96)',backdropFilter:'blur(20px)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,background:'#FFFFFF',border:`1.5px solid ${isRec?'rgba(220,38,38,0.4)':'rgba(0,0,0,0.1)'}`,borderRadius:14,padding:'5px 5px 5px 18px',boxShadow:'0 4px 16px rgba(0,0,0,0.07)',transition:'border-color 0.2s'}}>
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#C4B9AD" strokeWidth="2.5" strokeLinecap="round" style={{flexShrink:0}}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      <div style={{position:'sticky',top:60,zIndex:60,paddingTop:14,paddingBottom:14,background:'rgba(248,246,241,0.97)',backdropFilter:'blur(24px)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,background:'var(--bg-1)',border:`1.5px solid ${isRec?'rgba(220,38,38,0.4)':'var(--border-hi)'}`,borderRadius:'var(--radius-xl)',padding:'5px 5px 5px 20px',boxShadow:'var(--shadow-md)',transition:'border-color 0.2s'}}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2" strokeLinecap="round" style={{flexShrink:0}}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input value={isRec?('Listening'+'.'.repeat(dots)):isProc?'Transcribing...':input} onChange={e=>{if(!isBusy)setInput(e.target.value)}} onKeyDown={e=>e.key==='Enter'&&!isBusy&&submit()} placeholder="Search any product..." readOnly={isBusy}
-            style={{flex:1,border:'none',outline:'none',fontSize:15,color:isRec?'#DC2626':'#111110',background:'transparent',fontFamily:'Sora,sans-serif',padding:'11px 0',minWidth:0,caretColor:'#5B4FCF'}}/>
+            style={{flex:1,border:'none',outline:'none',fontSize:15,fontWeight:300,letterSpacing:'0.02em',color:isRec?'#DC2626':'var(--ink)',background:'transparent',fontFamily:'var(--font-sans)',padding:'12px 0',minWidth:0,caretColor:'var(--accent)'}}/>
           <button onClick={toggleMic} disabled={isProc}
-            style={{width:40,height:40,borderRadius:9,border:'none',flexShrink:0,background:isRec?'rgba(220,38,38,0.08)':'#F5F4F2',cursor:isProc?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'all 0.2s',animation:isRec?'mic-ring 1s ease infinite':'none'}}>
-            {isProc?<div style={{width:13,height:13,border:'2px solid #D6D3D1',borderTopColor:'#5B4FCF',borderRadius:'50%',animation:'spin .7s linear infinite'}}/>
+            style={{width:42,height:42,borderRadius:'var(--radius)',border:'1px solid var(--border)',flexShrink:0,background:isRec?'rgba(220,38,38,0.07)':'var(--bg-2)',cursor:isProc?'not-allowed':'pointer',display:'flex',alignItems:'center',justifyContent:'center',transition:'all 0.2s',animation:isRec?'mic-ring 1.2s ease infinite':'none'}}>
+            {isProc?<div style={{width:14,height:14,border:'1.5px solid var(--ink-4)',borderTopColor:'var(--accent)',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
               :isRec?<svg width="11" height="11" viewBox="0 0 24 24" fill="#DC2626"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-              :<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#78716C" strokeWidth="2" strokeLinecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>}
+              :<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="1.8" strokeLinecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>}
           </button>
           <button onClick={()=>submit()} disabled={!input.trim()||isBusy}
-            style={{padding:'0 20px',height:40,borderRadius:9,background:input.trim()&&!isBusy?'linear-gradient(135deg,#5B4FCF,#7C6FCD)':'#F0EFed',color:input.trim()&&!isBusy?'#fff':'#C4B9AD',fontWeight:600,border:'none',cursor:!input.trim()||isBusy?'not-allowed':'pointer',fontSize:13,transition:'all 0.2s',whiteSpace:'nowrap',flexShrink:0,boxShadow:input.trim()&&!isBusy?'0 2px 8px rgba(91,79,207,0.3)':'none'}}>
+            style={{padding:'0 22px',height:42,borderRadius:'var(--radius-lg)',background:input.trim()&&!isBusy?'var(--ink)':'var(--bg-3)',color:input.trim()&&!isBusy?'var(--bg)':'var(--ink-4)',fontWeight:500,border:'none',cursor:!input.trim()||isBusy?'not-allowed':'pointer',fontSize:13,letterSpacing:'0.03em',transition:'background 0.2s',whiteSpace:'nowrap',flexShrink:0,fontFamily:'var(--font-sans)'}}>
             Search
           </button>
         </div>
-        {recState==='error'&&voiceError&&<div style={{marginTop:6,fontSize:13,color:'#DC2626',padding:'6px 0'}}>⚠️ {voiceError}</div>}
-        {transcript&&!isBusy&&<div style={{marginTop:6,fontSize:13,color:'#16A34A',padding:'6px 0'}}>✓ You said: {transcript}</div>}
+        {recState==='error'&&voiceError&&<div style={{marginTop:8,fontSize:12,color:'#B91C1C',letterSpacing:'0.01em',fontFamily:'var(--font-sans)'}}>⚠️ {voiceError}</div>}
+        {transcript&&!isBusy&&<div style={{marginTop:8,fontSize:12,color:'var(--accent)',fontFamily:'var(--font-sans)'}}>✓ You said: {transcript}</div>}
       </div>
 
       <style>{`
-        @keyframes card-in{from{opacity:0;transform:translateY(16px) scale(0.98)}to{opacity:1;transform:translateY(0) scale(1)}}
-        @keyframes mic-ring{0%,100%{box-shadow:0 0 0 2px rgba(220,38,38,0.25)}50%{box-shadow:0 0 0 7px rgba(220,38,38,0.04)}}
+        @keyframes card-in{from{opacity:0;transform:translateY(20px) scale(0.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+        @keyframes mic-ring{0%,100%{box-shadow:0 0 0 2px rgba(220,38,38,0.2)}50%{box-shadow:0 0 0 8px rgba(220,38,38,0.03)}}
         @keyframes spin{to{transform:rotate(360deg)}}
         @keyframes dot-bounce{0%,80%,100%{transform:scale(0.6);opacity:0.3}40%{transform:scale(1);opacity:1}}
-        @keyframes blink{0%,100%{opacity:1}50%{opacity:0.25}}
+        @keyframes wave-bar{from{transform:scaleY(0.3)}to{transform:scaleY(1)}}
+        .reveal{opacity:0;transform:translateY(28px);transition:opacity .7s cubic-bezier(0.22,1,0.36,1),transform .7s cubic-bezier(0.22,1,0.36,1)}
+        .reveal.visible{opacity:1;transform:translateY(0)}
       `}</style>
 
       {/* Loading */}
       {loading&&(
-        <div style={{textAlign:'center',padding:'80px 0'}}>
+        <div style={{textAlign:'center',padding:'100px 0'}}>
           <div style={{display:'flex',gap:8,justifyContent:'center',marginBottom:20}}>
-            {[0,1,2].map(i=><div key={i} style={{width:10,height:10,borderRadius:'50%',background:'#5B4FCF',animation:`dot-bounce 1.2s ${i*0.2}s infinite ease-in-out`}}/>)}
+            {[0,1,2].map(i=><div key={i} style={{width:8,height:8,borderRadius:'50%',background:'var(--ink)',animation:`dot-bounce 1.2s ${i*0.2}s infinite ease-in-out`}}/>)}
           </div>
-          <div style={{fontSize:13,color:'#A8A29E',fontFamily:'Geist Mono, monospace',letterSpacing:'0.5px'}}>ANALYSING REVIEWS · REMOVING FAKES · COMPUTING PR SCORE</div>
+          <div style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase'}}>Analysing reviews · Removing fakes · Computing PR Score</div>
         </div>
       )}
 
       {!loading&&answer&&(
-        <div>
-          <div style={{marginBottom:24,paddingBottom:20,borderBottom:'1px solid rgba(0,0,0,0.07)'}}>
-            <h1 style={{fontFamily:'Sora,sans-serif',fontSize:'clamp(18px,3vw,26px)',fontWeight:700,color:'#111110',letterSpacing:'-0.5px',marginBottom:6}}>{query||input}</h1>
-            <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
-              <span style={{fontSize:11,color:'#C4B9AD',fontFamily:'Geist Mono, monospace'}}>🤖 ProductRating AI</span>
-              <span style={{fontSize:11,color:'#C4B9AD',fontFamily:'Geist Mono, monospace'}}>· FAKE REVIEWS REMOVED</span>
-              <span style={{fontSize:11,color:'#C4B9AD',fontFamily:'Geist Mono, monospace'}}>· ALL SCORES OUT OF 5</span>
+        <div ref={resultsRef}>
+          {/* Query heading */}
+          <div style={{marginBottom:28,paddingBottom:24,borderBottom:'1px solid var(--border)',marginTop:8}}>
+            <h1 style={{fontFamily:'var(--font-serif)',fontSize:'clamp(20px,3.5vw,30px)',fontWeight:700,color:'var(--ink)',letterSpacing:'-0.5px',marginBottom:8,lineHeight:1.2}}>{query||input}</h1>
+            <div style={{display:'flex',gap:16,flexWrap:'wrap'}}>
+              {['AI-adjusted ratings','Fake reviews removed','All scores out of 5'].map(t=>(
+                <span key={t} style={{fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>{t}</span>
+              ))}
             </div>
           </div>
 
-          {/* AI Answer */}
-          <div style={{background:'rgba(91,79,207,0.05)',border:'1px solid rgba(91,79,207,0.15)',borderLeft:'3px solid rgba(91,79,207,0.5)',borderRadius:14,padding:'18px 22px',marginBottom:32}}>
+          {/* AI answer */}
+          <div style={{background:'var(--bg-1)',border:'1.5px solid var(--border)',borderLeft:'2px solid var(--accent)',borderRadius:'var(--radius)',padding:'18px 22px',marginBottom:36}}>
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
-              <span style={{width:6,height:6,borderRadius:'50%',background:'#5B4FCF',display:'inline-block',animation:'blink 2s infinite'}}/>
-              <span style={{fontSize:10,color:'#5B4FCF',fontFamily:'Geist Mono, monospace',letterSpacing:'1.5px'}}>AI ANALYSIS · PRODUCTRATING</span>
+              <span style={{width:5,height:5,borderRadius:'50%',background:'var(--accent)',display:'inline-block',animation:'blink 2s infinite'}}/>
+              <span style={{fontSize:9,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase'}}>AI Analysis · ProductRating</span>
             </div>
-            <p style={{color:'#374151',lineHeight:1.8,margin:0,fontSize:15}}>{answer}</p>
+            <p style={{color:'var(--ink-2)',lineHeight:1.85,margin:0,fontSize:14,letterSpacing:'0.02em',fontWeight:300}}>{answer}</p>
           </div>
 
-          {/* Products */}
+          {/* Product cards */}
           {aiProducts.length>0&&(
-            <div style={{marginBottom:40}}>
-              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20}}>
-                <span style={{fontSize:16,fontWeight:700,color:'#111110'}}>Top Recommendations</span>
-                <span style={{fontSize:10,color:'#A8A29E',fontFamily:'Geist Mono, monospace',border:'1px solid rgba(0,0,0,0.08)',borderRadius:4,padding:'2px 8px'}}>AI RANKED</span>
+            <div style={{marginBottom:48}}>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:24}}>
+                <h2 style={{fontFamily:'var(--font-serif)',fontSize:20,fontWeight:700,color:'var(--ink)',letterSpacing:'-0.3px'}}>Top Recommendations</h2>
+                <span style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',border:'1px solid var(--border)',borderRadius:4,padding:'3px 10px',letterSpacing:'1px',textTransform:'uppercase'}}>AI Ranked</span>
               </div>
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(min(100%,300px),1fr))',gap:16}}>
                 {aiProducts.map((p,i)=><AiCard key={i} p={p} idx={i}/>)}
@@ -317,10 +360,10 @@ function SearchResults(){
 
           {/* Live prices */}
           {serpProducts.length>0&&(
-            <div style={{marginBottom:40}}>
-              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
-                <span style={{fontSize:14,fontWeight:600,color:'#57534E'}}>Live Prices</span>
-                <span style={{fontSize:10,color:'#A8A29E',fontFamily:'Geist Mono, monospace',border:'1px solid rgba(0,0,0,0.07)',borderRadius:4,padding:'2px 8px'}}>DIRECT LINKS</span>
+            <div style={{marginBottom:48}}>
+              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:18}}>
+                <h2 style={{fontFamily:'var(--font-serif)',fontSize:18,fontWeight:600,color:'var(--ink-2)',letterSpacing:'-0.2px'}}>Live Prices</h2>
+                <span style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',border:'1px solid var(--border)',borderRadius:4,padding:'3px 10px',letterSpacing:'1px',textTransform:'uppercase'}}>Direct Links</span>
               </div>
               <div style={{display:'flex',flexDirection:'column',gap:8}}>
                 {serpProducts.slice(0,5).map((p,i)=><SerpCard key={i} p={p}/>)}
@@ -330,14 +373,14 @@ function SearchResults(){
 
           {/* Related */}
           {related.length>0&&(
-            <div style={{paddingTop:24,borderTop:'1px solid rgba(0,0,0,0.07)'}}>
-              <p style={{fontSize:10,color:'#C4B9AD',fontFamily:'Geist Mono, monospace',letterSpacing:'1px',marginBottom:12}}>RELATED SEARCHES</p>
+            <div style={{paddingTop:28,borderTop:'1px solid var(--border)'}}>
+              <p style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:14}}>Related Searches</p>
               <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
                 {related.map((r,i)=>(
                   <button key={i} onClick={()=>submit(r)}
-                    style={{padding:'7px 16px',borderRadius:100,background:'#FFFFFF',border:'1.5px solid rgba(0,0,0,0.08)',color:'#78716C',fontSize:13,cursor:'pointer',transition:'all 0.15s',boxShadow:'0 1px 3px rgba(0,0,0,0.04)'}}
-                    onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor='rgba(91,79,207,0.3)';(e.currentTarget as HTMLButtonElement).style.color='#5B4FCF';(e.currentTarget as HTMLButtonElement).style.transform='translateY(-1px)'}}
-                    onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor='rgba(0,0,0,0.08)';(e.currentTarget as HTMLButtonElement).style.color='#78716C';(e.currentTarget as HTMLButtonElement).style.transform='translateY(0)'}}>
+                    style={{padding:'8px 18px',borderRadius:'var(--radius-xl)',background:'transparent',border:'1px solid var(--border-hi)',color:'var(--ink-3)',fontSize:13,cursor:'pointer',transition:'all 0.25s cubic-bezier(0.22,1,0.36,1)',fontFamily:'var(--font-sans)',letterSpacing:'0.02em',fontWeight:300}}
+                    onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor='var(--ink)';(e.currentTarget as HTMLButtonElement).style.color='var(--ink)';(e.currentTarget as HTMLButtonElement).style.transform='translateY(-2px)'}}
+                    onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor='var(--border-hi)';(e.currentTarget as HTMLButtonElement).style.color='var(--ink-3)';(e.currentTarget as HTMLButtonElement).style.transform='translateY(0)'}}>
                     {r}
                   </button>
                 ))}
@@ -348,21 +391,20 @@ function SearchResults(){
       )}
 
       {!loading&&!answer&&!called&&(
-        <div style={{textAlign:'center',padding:'80px 0'}}>
-          <div style={{width:56,height:56,background:'rgba(91,79,207,0.08)',borderRadius:16,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',fontSize:22}}>◈</div>
-          <div style={{fontSize:16,fontWeight:600,color:'#57534E',marginBottom:8}}>Ask anything about any product</div>
-          <div style={{fontSize:13,color:'#A8A29E',fontFamily:'Geist Mono, monospace'}}>Type or tap 🎙️ to speak in any Indian language</div>
+        <div style={{textAlign:'center',padding:'100px 0'}}>
+          <div style={{fontFamily:'var(--font-serif)',fontSize:48,color:'var(--bg-3)',marginBottom:20,lineHeight:1}}>◈</div>
+          <p style={{fontFamily:'var(--font-serif)',fontSize:22,fontWeight:600,color:'var(--ink-3)',marginBottom:10,letterSpacing:'-0.3px'}}>Ask anything about any product</p>
+          <p style={{fontSize:12,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>Type above or tap the mic · 22 Indian languages</p>
         </div>
       )}
 
-      {/* Floating mic — mobile */}
-      <button onClick={toggleMic} disabled={isProc}
-        style={{position:'fixed',bottom:24,right:20,width:52,height:52,borderRadius:'50%',border:'none',background:isRec?'#DC2626':'linear-gradient(135deg,#5B4FCF,#7C6FCD)',cursor:isProc?'not-allowed':'pointer',alignItems:'center',justifyContent:'center',boxShadow:'0 8px 24px rgba(91,79,207,0.35)',zIndex:99,transition:'all 0.2s',display:'none'}}
-        className="mobile-fab">
-        {isProc?<div style={{width:18,height:18,border:'2.5px solid rgba(255,255,255,0.4)',borderTopColor:'#fff',borderRadius:'50%',animation:'spin .7s linear infinite'}}/>
-          :isRec?<svg width="16" height="16" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-          :<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>}
-        <style>{`.mobile-fab{display:none!important}@media(max-width:768px){.mobile-fab{display:flex!important}}`}</style>
+      {/* Mobile floating mic */}
+      <button onClick={toggleMic} disabled={isProc} className="mobile-fab"
+        style={{position:'fixed',bottom:24,right:20,width:52,height:52,borderRadius:'50%',border:'none',background:isRec?'#DC2626':'var(--ink)',cursor:isProc?'not-allowed':'pointer',display:'none',alignItems:'center',justifyContent:'center',boxShadow:'var(--shadow-xl)',zIndex:99,transition:'all 0.3s cubic-bezier(0.22,1,0.36,1)'}}>
+        {isProc?<div style={{width:18,height:18,border:'2px solid rgba(248,246,241,0.4)',borderTopColor:'var(--bg)',borderRadius:'50%',animation:'spin .8s linear infinite'}}/>
+          :isRec?<svg width="15" height="15" viewBox="0 0 24 24" fill="var(--bg)"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+          :<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--bg)" strokeWidth="1.8" strokeLinecap="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>}
+        <style>{`@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}.mobile-fab{display:none!important}@media(max-width:768px){.mobile-fab{display:flex!important}}`}</style>
       </button>
     </div>
   )
@@ -370,9 +412,9 @@ function SearchResults(){
 
 export default function SearchPage(){
   return(
-    <div style={{minHeight:'100vh',background:'#FAFAF9',fontFamily:'Sora,sans-serif'}}>
+    <div style={{minHeight:'100vh',background:'var(--bg)',fontFamily:'var(--font-sans)'}}>
       <Nav/>
-      <Suspense fallback={<div style={{padding:'80px 20px',textAlign:'center',color:'#A8A29E',fontFamily:'Geist Mono, monospace'}}>LOADING...</div>}>
+      <Suspense fallback={<div style={{padding:'100px 20px',textAlign:'center',color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',fontSize:11}}>Loading...</div>}>
         <SearchResults/>
       </Suspense>
     </div>
