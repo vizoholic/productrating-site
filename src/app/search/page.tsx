@@ -287,7 +287,7 @@ function SearchResults(){
           <div style={{marginBottom:24,paddingBottom:20,borderBottom:'1px solid rgba(0,0,0,0.07)'}}>
             <h1 style={{fontFamily:'Sora,sans-serif',fontSize:'clamp(18px,3vw,26px)',fontWeight:700,color:'#111110',letterSpacing:'-0.5px',marginBottom:6}}>{query||input}</h1>
             <div style={{display:'flex',gap:12,flexWrap:'wrap'}}>
-              <span style={{fontSize:11,color:'#C4B9AD',fontFamily:'Geist Mono, monospace'}}>🤖 SARVAM AI</span>
+              <span style={{fontSize:11,color:'#C4B9AD',fontFamily:'Geist Mono, monospace'}}>🤖 ProductRating AI</span>
               <span style={{fontSize:11,color:'#C4B9AD',fontFamily:'Geist Mono, monospace'}}>· FAKE REVIEWS REMOVED</span>
               <span style={{fontSize:11,color:'#C4B9AD',fontFamily:'Geist Mono, monospace'}}>· ALL SCORES OUT OF 5</span>
             </div>
@@ -297,7 +297,7 @@ function SearchResults(){
           <div style={{background:'rgba(91,79,207,0.05)',border:'1px solid rgba(91,79,207,0.15)',borderLeft:'3px solid rgba(91,79,207,0.5)',borderRadius:14,padding:'18px 22px',marginBottom:32}}>
             <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
               <span style={{width:6,height:6,borderRadius:'50%',background:'#5B4FCF',display:'inline-block',animation:'blink 2s infinite'}}/>
-              <span style={{fontSize:10,color:'#5B4FCF',fontFamily:'Geist Mono, monospace',letterSpacing:'1.5px'}}>AI ANALYSIS · SARVAM AI</span>
+              <span style={{fontSize:10,color:'#5B4FCF',fontFamily:'Geist Mono, monospace',letterSpacing:'1.5px'}}>AI ANALYSIS · PRODUCTRATING</span>
             </div>
             <p style={{color:'#374151',lineHeight:1.8,margin:0,fontSize:15}}>{answer}</p>
           </div>
