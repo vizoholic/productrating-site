@@ -1,3 +1,4 @@
+'use client'
 // Points 3, 5, 7, 8 — 3 signature cards, consistent outline icons,
 // platform logo row, visual how-it-works
 
