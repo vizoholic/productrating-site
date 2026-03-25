@@ -105,7 +105,7 @@ export default async function ResultPage({ params }: Props) {
             🔍 Get AI Recommendations →
           </Link>
           <p style={{ marginTop: 12, fontSize: 12, color: '#A8A29E', fontFamily: 'Geist Mono, monospace' }}>
-            Free · No ads · Sarvam AI · 22 Indian languages
+            Free · No ads · 22 Indian languages
           </p>
         </div>
 
