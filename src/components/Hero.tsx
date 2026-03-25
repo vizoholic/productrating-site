@@ -102,7 +102,7 @@ export default function Hero() {
         <div style={{ display:'inline-flex', alignItems:'center', gap:8, marginBottom:28, animation:'fade-up 0.5s ease both' }}>
           <div style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(91,79,207,0.08)', border:'1px solid rgba(91,79,207,0.18)', borderRadius:100, padding:'5px 16px' }}>
             <span style={{ width:6, height:6, borderRadius:'50%', background:'#5B4FCF', display:'inline-block', animation:'blink 2s infinite' }} />
-            <span style={{ fontSize:12, fontWeight:500, color:'#5B4FCF', letterSpacing:'0.3px', fontFamily:'Geist Mono, monospace' }}>POWERED BY SARVAM AI · INDIA&apos;S OWN LLM</span>
+            <span style={{ fontSize:12, fontWeight:500, color:'#5B4FCF', letterSpacing:'0.3px', fontFamily:'Geist Mono, monospace' }}>INDIA&apos;S AI PRODUCT INTELLIGENCE</span>
           </div>
         </div>
 
@@ -138,7 +138,7 @@ export default function Hero() {
               </svg>
 
               <input
-                value={isRec ? ('Listening' + '.'.repeat(dots)) : isProc ? 'Transcribing with Sarvam AI...' : query}
+                value={isRec ? ('Listening' + '.'.repeat(dots)) : isProc ? 'Transcribing your voice...' : query}
                 onChange={e => { if (!isBusy) setQuery(e.target.value) }}
                 onKeyDown={e => e.key==='Enter' && !isBusy && go()}
                 onFocus={() => setFocused(true)}
@@ -218,7 +218,7 @@ export default function Hero() {
           )}
           {!isBusy && !transcript && (
             <p style={{ marginTop:12, fontSize:12, color:'#C4B9AD', display:'flex', gap:6, justifyContent:'center', alignItems:'center', fontFamily:'Geist Mono, monospace' }}>
-              🎙️ {location?.city ? `Personalised for ${location.city}` : 'Tap mic · 22 Indian languages · Sarvam AI'}
+              🎙️ {location?.city ? `Personalised for ${location.city}` : 'Tap mic · Speak in 22 Indian languages'}
             </p>
           )}
 
