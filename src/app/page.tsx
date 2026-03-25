@@ -7,7 +7,7 @@ import Footer from '@/components/Footer'
 
 export const metadata: Metadata = {
   title: 'ProductRating.in — AI Product Intelligence for India',
-  description: 'One honest score across India\'s top platforms. Fake reviews filtered. Product decisions, rebuilt for India.',
+  description: 'Product decisions, rebuilt for India. One honest score across India\'s top platforms. Fake reviews filtered. Ask in 22 Indian languages.',
   alternates: { canonical: 'https://www.productrating.in' },
 }
 
