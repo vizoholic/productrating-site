@@ -95,7 +95,7 @@ export default function Hero() {
 
         {/* #3 HEADLINE — 10-15% bigger, controlled weight */}
         <h1 style={{
-          fontSize:'clamp(44px,7.5vw,82px)',  /* bigger */
+          fontSize:'clamp(48px,8vw,90px)',  /* bigger */,
           fontWeight:700,                       /* #11 not 800 — calmer */
           lineHeight:1.04,
           letterSpacing:'-2.5px',
@@ -114,11 +114,11 @@ export default function Hero() {
         <p style={{
           fontSize:'clamp(15px,2vw,18px)',
           fontWeight:300,
-          color:'var(--ink-3)',       /* lighter subtext */
+          color:'#777571',       /* lighter subtext */,
           lineHeight:1.8,
           letterSpacing:'0.025em',    /* #3 wider spacing */
           maxWidth:460,
-          margin:'0 auto 56px',       /* #2 more gap headline→search */
+          margin:'0 auto 64px',       /* #2 more gap headline→search */,
           animation:'fade-up 0.7s 0.16s ease both',
           opacity:0,animationFillMode:'forwards'
         }}>
@@ -130,14 +130,14 @@ export default function Hero() {
         <div style={{animation:'fade-up 0.7s 0.24s ease both',opacity:0,animationFillMode:'forwards'}}>
           <div style={{
             /* #1 DEPTH — search floats on its own plane */
-            background:'rgba(255,255,255,0.85)',
-            backdropFilter:'blur(20px)',
-            WebkitBackdropFilter:'blur(20px)',
-            border:`1.5px solid ${isRec?'rgba(220,38,38,0.45)':focused?'var(--accent)':'rgba(91,79,207,0.3)'}`,
+            background:'rgba(255,255,255,0.92)',
+            backdropFilter:'blur(24px)',
+            WebkitBackdropFilter:'blur(24px)',
+            border:`1.5px solid ${isRec?'rgba(220,38,38,0.45)':focused?'var(--accent)':'rgba(91,79,207,0.35)'}`,
             borderRadius:22,
             boxShadow: focused
-              ? `0 0 0 5px rgba(91,79,207,0.08), var(--shadow-raised)`
-              : `var(--shadow-search)`,
+              ? `0 0 0 6px rgba(91,79,207,0.1), 0 20px 60px rgba(91,79,207,0.15), 0 8px 24px rgba(0,0,0,0.08)`
+              : `0 8px 48px rgba(91,79,207,0.12), 0 4px 16px rgba(0,0,0,0.06)`,
             transition:`border-color var(--t-mid) var(--ease), box-shadow var(--t-mid) var(--ease)`,
             animation:isRec?'mic-ring 1.2s ease infinite':'none',
           }}>
@@ -233,7 +233,7 @@ export default function Hero() {
                   whiteSpace:'nowrap',
                   boxShadow:'0 1px 3px rgba(0,0,0,0.04)',
                 }}
-                onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--accent)';e.currentTarget.style.color='var(--accent)';e.currentTarget.style.transform='translateY(-2px) scale(1.02)';e.currentTarget.style.boxShadow='0 6px 16px rgba(91,79,207,0.12)'}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--accent)';e.currentTarget.style.color='var(--accent)';e.currentTarget.style.transform='translateY(-3px) scale(1.03)';e.currentTarget.style.boxShadow='0 8px 20px rgba(91,79,207,0.15)'}}
                 onMouseLeave={e=>{e.currentTarget.style.borderColor='rgba(0,0,0,0.1)';e.currentTarget.style.color='var(--ink-3)';e.currentTarget.style.transform='translateY(0) scale(1)';e.currentTarget.style.boxShadow='0 1px 3px rgba(0,0,0,0.04)'}}>
                 {ex}
               </button>
