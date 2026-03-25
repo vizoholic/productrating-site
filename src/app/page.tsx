@@ -1,7 +1,6 @@
 import type { Metadata } from 'next'
 import Nav from '@/components/Nav'
 import Hero from '@/components/Hero'
-import MockResult from '@/components/MockResult'
 import Features from '@/components/Features'
 import Testimonials from '@/components/Testimonials'
 import Footer from '@/components/Footer'
@@ -18,7 +17,6 @@ export default function HomePage() {
       <Nav />
       <main>
         <Hero />
-        <MockResult />
         <Features />
         <Testimonials />
       </main>
