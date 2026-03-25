@@ -101,7 +101,7 @@ export async function runSearch(
     .catch(() => ({ products: [], relatedSearches: [], query: question }))
   const serpContext = buildProductContext(serpResult)
 
-  const systemPrompt = `You are ProductRating.in's AI advisor — powered by Sarvam AI (India's own LLM).
+  const systemPrompt = `You are ProductRating.in's AI advisor — powered by ProductRating AI.
 ${lang}
 ${locationPrompt}
 
