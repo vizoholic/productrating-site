@@ -127,20 +127,20 @@ export default function Features() {
               {/* India context */}
               <R delay={0.1} style={{flex:1}}>
                 <div style={{
-                  background:'var(--ink)',border:'1.5px solid var(--ink)',borderRadius:24,
+                  background:'rgba(91,79,207,0.06)',border:'1.5px solid rgba(91,79,207,0.2)',borderRadius:24,
                   padding:'clamp(28px,3.5vw,40px)',height:'100%',
                   /* #1 DEPTH — elevated card */
-                  boxShadow:'var(--shadow-raised)',
-                  transition:`transform var(--t-mid) var(--ease)`,
+                  boxShadow:'var(--shadow-card)',
+                  transition:`transform var(--t-mid) var(--ease), box-shadow var(--t-mid) var(--ease)`,
                 }}
                   onMouseEnter={e=>(e.currentTarget as HTMLDivElement).style.transform='translateY(-5px)'}
                   onMouseLeave={e=>(e.currentTarget as HTMLDivElement).style.transform='translateY(0)'}>
-                  <div style={{color:'rgba(255,255,255,0.5)',marginBottom:18}}>
+                  <div style={{color:'var(--accent)',marginBottom:18}}>
                     <Icon d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z" size={24}/>
                   </div>
-                  <h3 style={{fontSize:'clamp(17px,2.5vw,22px)',fontWeight:600,color:'#fff',marginBottom:12,letterSpacing:'-0.4px',lineHeight:1.2}}>Built for India's context</h3>
-                  <p style={{fontSize:13,color:'rgba(255,255,255,0.5)',lineHeight:1.85,letterSpacing:'0.02em',fontWeight:300}}>Chennai heat. Delhi dust. Mumbai humidity. Recommendations that factor in your city's actual conditions.</p>
-                  <div style={{marginTop:18,fontSize:10,color:'rgba(255,255,255,0.22)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>Tier 1 & 2 city intelligence</div>
+                  <h3 style={{fontSize:'clamp(17px,2.5vw,22px)',fontWeight:600,color:'var(--ink)',marginBottom:12,letterSpacing:'-0.4px',lineHeight:1.2}}>Built for India's context</h3>
+                  <p style={{fontSize:13,color:'var(--ink-3)',lineHeight:1.85,letterSpacing:'0.02em',fontWeight:300}}>Chennai heat. Delhi dust. Mumbai humidity. Recommendations that factor in your city's actual conditions.</p>
+                  <div style={{marginTop:18,fontSize:10,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>Tier 1 & 2 city intelligence</div>
                 </div>
               </R>
               {/* Voice */}
