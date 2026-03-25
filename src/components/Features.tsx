@@ -1,125 +1,202 @@
 'use client'
-// Points 3, 5, 7, 8 — 3 signature cards, consistent outline icons,
-// platform logo row, visual how-it-works
+import { useEffect, useRef } from 'react'
 
-// Consistent outline icon component
-function Icon({ d, size=20 }: { d: string; size?: number }) {
+// Custom rating indicator — thin-line arc, not generic stars
+function RatingArc({ score, size=56 }: { score:number; size?:number }) {
+  const pct = (score / 5)
+  const r = (size/2) - 5
+  const circ = 2 * Math.PI * r
+  const dash = circ * pct
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d={d}/>
-    </svg>
+    <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ transform:'rotate(-90deg)' }}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--bg-3)" strokeWidth="2.5"/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--accent)" strokeWidth="2.5"
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+          style={{ transition:'stroke-dasharray 1s cubic-bezier(0.22,1,0.36,1)' }}/>
+      </svg>
+      <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', flexDirection:'column' }}>
+        <span style={{ fontFamily:'var(--font-serif)', fontSize:size/3, fontWeight:700, color:'var(--ink)', lineHeight:1, letterSpacing:'-1px' }}>{score.toFixed(1)}</span>
+        <span style={{ fontSize:8, color:'var(--ink-4)', fontFamily:'var(--font-mono)', letterSpacing:'0.3px' }}>/5</span>
+      </div>
+    </div>
   )
 }
 
-const SIGNATURE_CARDS = [
-  {
-    icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z',
-    title: 'Honest Score',
-    desc: 'One AI-adjusted rating across 8 Indian platforms. Fake reviews filtered out.',
-    metric: '38% fake reviews removed',
-    color: '#16A34A',
-    bg: 'rgba(22,163,74,0.06)',
-    border: 'rgba(22,163,74,0.15)',
-  },
-  {
-    icon: 'M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z',
-    title: 'India Context',
-    desc: 'Recommendations factoring in your city\'s climate, power supply, and service centres.',
-    metric: 'Tier 1 & 2 city intelligence',
-    color: '#5B4FCF',
-    bg: 'rgba(91,79,207,0.06)',
-    border: 'rgba(91,79,207,0.15)',
-  },
-  {
-    icon: 'M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z',
-    title: 'Voice in 22 Languages',
-    desc: 'Speak in Hindi, Tamil, Telugu, Bengali, or any Indian language — we understand.',
-    metric: 'All 22 scheduled languages',
-    color: '#B45309',
-    bg: 'rgba(180,83,9,0.06)',
-    border: 'rgba(180,83,9,0.15)',
-  },
-]
+// Editor's Choice seal — bespoke branded badge
+function EditorSeal({ label }: { label:string }) {
+  return (
+    <div style={{ display:'inline-flex', alignItems:'center', gap:8, background:'var(--gold-bg)', border:'1px solid rgba(139,105,20,0.25)', borderRadius:'var(--radius-sm)', padding:'6px 14px' }}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="1.8">
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+      </svg>
+      <span style={{ fontSize:11, fontWeight:500, color:'var(--gold)', fontFamily:'var(--font-mono)', letterSpacing:'0.5px', textTransform:'uppercase' }}>{label}</span>
+    </div>
+  )
+}
 
-const PLATFORMS = ['Amazon', 'Flipkart', 'Nykaa', 'Croma', 'Meesho', 'JioMart', 'Myntra', 'Tata Cliq', 'Ajio', 'Reliance Digital']
+const PLATFORMS = ['Amazon.in','Flipkart','Nykaa','Croma','Meesho','JioMart','Myntra','Tata Cliq','Ajio','Reliance Digital']
 
-const HOW_STEPS = [
-  { n:'01', icon:'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4', label:'Collect reviews' },
-  { n:'02', icon:'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636', label:'Remove fakes' },
-  { n:'03', icon:'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z', label:'Build PR Score' },
-  { n:'04', icon:'M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z', label:'Recommend instantly' },
-]
+// Scroll reveal hook
+function useReveal() {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = ref.current; if (!el) return
+    const obs = new IntersectionObserver(([e]) => { if (e.isIntersecting) { el.classList.add('visible'); obs.disconnect() } }, { threshold:0.15 })
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+  return ref
+}
+
+function RevealDiv({ children, delay=0, style={} }: { children:React.ReactNode; delay?:number; style?:React.CSSProperties }) {
+  const ref = useReveal()
+  return <div ref={ref} className="reveal" style={{ transitionDelay:`${delay}s`, ...style }}>{children}</div>
+}
 
 export default function Features() {
   return (
-    <section style={{ padding:'clamp(48px,6vw,80px) clamp(20px,5vw,40px)', background:'#FAFAF9' }}>
-      <div style={{ maxWidth:1100, margin:'0 auto' }}>
+    <>
+      {/* ── BENTO GRID — What makes us different ── */}
+      <section style={{ padding:'clamp(80px,10vw,120px) clamp(20px,5vw,48px)', background:'var(--bg)' }}>
+        <div style={{ maxWidth:1140, margin:'0 auto' }}>
 
-        {/* ── 3 SIGNATURE CARDS ── */}
-        <div style={{ textAlign:'center', marginBottom:40 }}>
-          <p style={{ fontSize:11, color:'#A8A29E', fontFamily:'Geist Mono, monospace', letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:12 }}>What makes us different</p>
-          <h2 style={{ fontSize:'clamp(22px,3.5vw,36px)', fontWeight:800, color:'#111110', letterSpacing:'-1px' }}>Three things we do better.</h2>
-        </div>
+          <RevealDiv style={{ marginBottom:56, textAlign:'center' }}>
+            <p style={{ fontSize:11, color:'var(--accent)', fontFamily:'var(--font-mono)', letterSpacing:'2px', textTransform:'uppercase', marginBottom:14 }}>What makes us different</p>
+            <h2 style={{ fontFamily:'var(--font-serif)', fontSize:'clamp(28px,4.5vw,52px)', fontWeight:700, color:'var(--ink)', letterSpacing:'-1px', lineHeight:1.1 }}>
+              Three things we do<br/><em style={{ fontStyle:'italic', color:'var(--accent)' }}>better than anyone.</em>
+            </h2>
+          </RevealDiv>
 
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(280px,1fr))', gap:14, marginBottom:72 }}>
-          {SIGNATURE_CARDS.map(c => (
-            <div key={c.title}
-              style={{ background:'#FFFFFF', border:`1.5px solid ${c.border}`, borderRadius:18, padding:28, transition:'all 0.2s', boxShadow:'0 2px 8px rgba(0,0,0,0.05)' }}
-              onMouseEnter={e=>{(e.currentTarget as HTMLDivElement).style.transform='translateY(-3px)';(e.currentTarget as HTMLDivElement).style.boxShadow=`0 12px 32px rgba(0,0,0,0.08)`}}
-              onMouseLeave={e=>{(e.currentTarget as HTMLDivElement).style.transform='translateY(0)';(e.currentTarget as HTMLDivElement).style.boxShadow='0 2px 8px rgba(0,0,0,0.05)'}}>
-              {/* One outline icon — consistent style */}
-              <div style={{ width:44, height:44, background:c.bg, borderRadius:12, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:18, color:c.color }}>
-                <Icon d={c.icon} size={20} />
+          {/* Bento grid */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(12, 1fr)', gridTemplateRows:'auto', gap:16 }}>
+
+            {/* Large card — Honest Score */}
+            <RevealDiv style={{ gridColumn:'span 7' }}>
+              <div className="hover-lift" style={{ background:'var(--bg-1)', border:'1.5px solid var(--border)', borderRadius:'var(--radius-xl)', padding:'clamp(28px,4vw,48px)', height:'100%', position:'relative', overflow:'hidden', boxShadow:'var(--shadow-sm)' }}>
+                <div style={{ position:'absolute', top:0, right:0, width:'200px', height:'200px', background:'radial-gradient(circle, rgba(44,95,46,0.06) 0%, transparent 70%)', filter:'blur(30px)' }} />
+                <EditorSeal label="ProductRating Certified" />
+                <h3 style={{ fontFamily:'var(--font-serif)', fontSize:'clamp(22px,3vw,32px)', fontWeight:700, color:'var(--ink)', marginTop:20, marginBottom:12, letterSpacing:'-0.5px', lineHeight:1.2 }}>
+                  One honest score.<br/>Across every platform.
+                </h3>
+                <p style={{ fontSize:14, color:'var(--ink-3)', lineHeight:1.85, letterSpacing:'0.02em', fontWeight:300, maxWidth:380, marginBottom:28 }}>
+                  We aggregate reviews from 8 Indian platforms and remove the fake ones. The number you see is what real buyers think — not what sellers paid for.
+                </p>
+                {/* Custom rating comparison */}
+                <div style={{ display:'flex', gap:24, alignItems:'center', flexWrap:'wrap' }}>
+                  <div style={{ textAlign:'center' }}>
+                    <div style={{ fontSize:10, color:'var(--ink-4)', fontFamily:'var(--font-mono)', letterSpacing:'1px', textTransform:'uppercase', marginBottom:10 }}>Platform shows</div>
+                    <RatingArc score={4.7} />
+                    <div style={{ fontSize:11, color:'#B91C1C', marginTop:6, fontFamily:'var(--font-mono)' }}>4.7 · with fakes</div>
+                  </div>
+                  <div style={{ display:'flex', flexDirection:'column', gap:4, color:'var(--ink-4)' }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  </div>
+                  <div style={{ textAlign:'center' }}>
+                    <div style={{ fontSize:10, color:'var(--ink-4)', fontFamily:'var(--font-mono)', letterSpacing:'1px', textTransform:'uppercase', marginBottom:10 }}>Real PR Score</div>
+                    <RatingArc score={4.2} />
+                    <div style={{ fontSize:11, color:'var(--accent)', marginTop:6, fontFamily:'var(--font-mono)' }}>4.2 · AI-adjusted</div>
+                  </div>
+                </div>
+                <div style={{ marginTop:24, fontSize:11, color:'var(--ink-4)', fontFamily:'var(--font-mono)', letterSpacing:'0.5px' }}>38% of reviews removed on average</div>
               </div>
-              <h3 style={{ fontSize:17, fontWeight:700, color:'#111110', marginBottom:8 }}>{c.title}</h3>
-              <p style={{ fontSize:13, color:'#78716C', lineHeight:1.7, marginBottom:16 }}>{c.desc}</p>
-              <div style={{ display:'inline-flex', alignItems:'center', gap:6, background:c.bg, borderRadius:100, padding:'4px 12px' }}>
-                <span style={{ width:5, height:5, borderRadius:'50%', background:c.color, flexShrink:0 }} />
-                <span style={{ fontSize:11, color:c.color, fontFamily:'Geist Mono, monospace', fontWeight:500 }}>{c.metric}</span>
-              </div>
+            </RevealDiv>
+
+            {/* Right column — 2 smaller cards */}
+            <div style={{ gridColumn:'span 5', display:'flex', flexDirection:'column', gap:16 }}>
+
+              {/* India Context */}
+              <RevealDiv delay={0.1} style={{ flex:1 }}>
+                <div className="hover-lift" style={{ background:'var(--ink)', border:'1.5px solid var(--ink)', borderRadius:'var(--radius-xl)', padding:'clamp(22px,3vw,32px)', height:'100%', boxShadow:'var(--shadow-md)' }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--bg-2)" strokeWidth="1.5" strokeLinecap="round" style={{ marginBottom:16 }}>
+                    <path d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                    <path d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                  <h3 style={{ fontFamily:'var(--font-serif)', fontSize:'clamp(18px,2.5vw,24px)', fontWeight:700, color:'var(--bg)', marginBottom:10, letterSpacing:'-0.3px' }}>
+                    Built for India&apos;s context
+                  </h3>
+                  <p style={{ fontSize:13, color:'rgba(248,246,241,0.6)', lineHeight:1.8, letterSpacing:'0.02em', fontWeight:300 }}>
+                    Chennai heat. Delhi dust. Mumbai humidity. Our recommendations factor in your city&apos;s actual conditions.
+                  </p>
+                  <div style={{ marginTop:16, fontSize:11, color:'rgba(248,246,241,0.35)', fontFamily:'var(--font-mono)', letterSpacing:'0.5px' }}>Tier 1 & 2 city intelligence</div>
+                </div>
+              </RevealDiv>
+
+              {/* Voice */}
+              <RevealDiv delay={0.2} style={{ flex:1 }}>
+                <div className="hover-lift" style={{ background:'var(--accent-bg)', border:'1.5px solid var(--accent-border)', borderRadius:'var(--radius-xl)', padding:'clamp(22px,3vw,32px)', height:'100%', boxShadow:'var(--shadow-sm)' }}>
+                  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" style={{ marginBottom:16 }}>
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                    <line x1="12" y1="19" x2="12" y2="23"/>
+                    <line x1="8" y1="23" x2="16" y2="23"/>
+                  </svg>
+                  <h3 style={{ fontFamily:'var(--font-serif)', fontSize:'clamp(18px,2.5vw,24px)', fontWeight:700, color:'var(--ink)', marginBottom:10, letterSpacing:'-0.3px' }}>
+                    Voice in 22 languages
+                  </h3>
+                  <p style={{ fontSize:13, color:'var(--ink-3)', lineHeight:1.8, letterSpacing:'0.02em', fontWeight:300 }}>
+                    Hindi, Tamil, Telugu, Bengali — ask in your language, get answers that understand India.
+                  </p>
+                  <div style={{ marginTop:16, fontSize:11, color:'var(--accent)', fontFamily:'var(--font-mono)', letterSpacing:'0.5px' }}>All 22 scheduled languages</div>
+                </div>
+              </RevealDiv>
             </div>
-          ))}
+          </div>
         </div>
+      </section>
 
-        {/* ── PLATFORM ROW — editorial, monochrome ── */}
-        <div style={{ background:'#FFFFFF', border:'1.5px solid rgba(0,0,0,0.07)', borderRadius:18, padding:'28px 32px', marginBottom:72, boxShadow:'0 2px 8px rgba(0,0,0,0.04)' }}>
-          <p style={{ fontSize:11, color:'#A8A29E', fontFamily:'Geist Mono, monospace', letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:20, textAlign:'center' }}>
-            Signals from India&apos;s most-used marketplaces
-          </p>
-          <div style={{ display:'flex', flexWrap:'wrap', gap:8, justifyContent:'center' }}>
-            {PLATFORMS.map(p => (
-              <div key={p} style={{ padding:'7px 16px', borderRadius:100, background:'#F5F4F2', border:'1px solid rgba(0,0,0,0.06)' }}>
-                <span style={{ fontSize:13, fontWeight:500, color:'#57534E' }}>{p}</span>
-              </div>
+      {/* ── PLATFORM ROW — editorial ── */}
+      <section style={{ padding:'clamp(48px,6vw,72px) clamp(20px,5vw,48px)', background:'var(--bg-1)', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)' }}>
+        <div style={{ maxWidth:1140, margin:'0 auto' }}>
+          <RevealDiv>
+            <p style={{ fontSize:11, color:'var(--ink-4)', fontFamily:'var(--font-mono)', letterSpacing:'2px', textTransform:'uppercase', textAlign:'center', marginBottom:28 }}>
+              Signals from India&apos;s most-used marketplaces
+            </p>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:8, justifyContent:'center' }}>
+              {PLATFORMS.map(p => (
+                <div key={p} style={{ padding:'8px 18px', borderRadius:'var(--radius-xl)', background:'var(--bg-2)', border:'1px solid var(--border)' }}>
+                  <span style={{ fontSize:13, fontWeight:400, color:'var(--ink-2)', fontFamily:'var(--font-sans)', letterSpacing:'0.01em' }}>{p}</span>
+                </div>
+              ))}
+            </div>
+          </RevealDiv>
+        </div>
+      </section>
+
+      {/* ── HOW IT WORKS — horizontal connected flow ── */}
+      <section style={{ padding:'clamp(80px,10vw,120px) clamp(20px,5vw,48px)', background:'var(--bg)' }}>
+        <div style={{ maxWidth:1140, margin:'0 auto' }}>
+          <RevealDiv style={{ textAlign:'center', marginBottom:64 }}>
+            <p style={{ fontSize:11, color:'var(--accent)', fontFamily:'var(--font-mono)', letterSpacing:'2px', textTransform:'uppercase', marginBottom:14 }}>Process</p>
+            <h2 style={{ fontFamily:'var(--font-serif)', fontSize:'clamp(26px,4vw,46px)', fontWeight:700, color:'var(--ink)', letterSpacing:'-1px', lineHeight:1.1 }}>
+              From millions of reviews<br/><em style={{ fontStyle:'italic' }}>to one answer.</em>
+            </h2>
+          </RevealDiv>
+
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(220px,1fr))', gap:2, background:'var(--border)', borderRadius:'var(--radius-xl)', overflow:'hidden' }}>
+            {[
+              { n:'01', title:'Collect', desc:'Every review from 8+ Indian platforms, updated daily.', icon:'M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4' },
+              { n:'02', title:'Filter', desc:'AI detects and removes fake, paid, and bot-generated reviews.', icon:'M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636' },
+              { n:'03', title:'Score', desc:'One PR Score — weighted by recency, credibility, and city context.', icon:'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z' },
+              { n:'04', title:'Answer', desc:'A clear recommendation with pros, cons, and direct buy links.', icon:'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
+            ].map((s,i) => (
+              <RevealDiv key={s.n} delay={i*0.1}>
+                <div style={{ background:'var(--bg-1)', padding:'36px 28px', height:'100%' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:20 }}>
+                    <span style={{ fontFamily:'var(--font-serif)', fontSize:13, fontStyle:'italic', color:'var(--ink-4)', letterSpacing:'0.5px' }}>{s.n}</span>
+                    <div style={{ flex:1, height:1, background:'var(--border)' }} />
+                  </div>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" style={{ marginBottom:14 }}>
+                    <path d={s.icon}/>
+                  </svg>
+                  <h3 style={{ fontFamily:'var(--font-serif)', fontSize:22, fontWeight:700, color:'var(--ink)', marginBottom:10, letterSpacing:'-0.3px' }}>{s.title}</h3>
+                  <p style={{ fontSize:13, color:'var(--ink-3)', lineHeight:1.8, letterSpacing:'0.02em', fontWeight:300 }}>{s.desc}</p>
+                </div>
+              </RevealDiv>
             ))}
           </div>
         </div>
-
-        {/* ── HOW IT WORKS — horizontal visual flow ── */}
-        <div style={{ textAlign:'center', marginBottom:36 }}>
-          <p style={{ fontSize:11, color:'#A8A29E', fontFamily:'Geist Mono, monospace', letterSpacing:'1.5px', textTransform:'uppercase', marginBottom:12 }}>How it works</p>
-          <h2 style={{ fontSize:'clamp(20px,3vw,32px)', fontWeight:800, color:'#111110', letterSpacing:'-1px' }}>From millions of reviews to one answer.</h2>
-        </div>
-
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px,1fr))', gap:0, background:'#FFFFFF', border:'1.5px solid rgba(0,0,0,0.07)', borderRadius:18, overflow:'hidden', boxShadow:'0 2px 8px rgba(0,0,0,0.04)' }}>
-          {HOW_STEPS.map((s, i) => (
-            <div key={s.n} style={{ padding:'28px 24px', borderRight: i < HOW_STEPS.length-1 ? '1px solid rgba(0,0,0,0.06)' : 'none', position:'relative' }}>
-              {/* Connector arrow on desktop */}
-              {i < HOW_STEPS.length-1 && (
-                <div style={{ position:'absolute', top:'50%', right:-8, transform:'translateY(-50%)', width:16, height:16, background:'#FFFFFF', display:'flex', alignItems:'center', justifyContent:'center', zIndex:1 }}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#D6D3D1" strokeWidth="2.5"><path d="M9 18l6-6-6-6"/></svg>
-                </div>
-              )}
-              {/* Outline icon — same style as signature cards */}
-              <div style={{ width:40, height:40, background:'rgba(91,79,207,0.07)', borderRadius:10, display:'flex', alignItems:'center', justifyContent:'center', marginBottom:14, color:'#5B4FCF' }}>
-                <Icon d={s.icon} size={18} />
-              </div>
-              <div style={{ fontSize:28, fontWeight:800, color:'rgba(91,79,207,0.1)', fontFamily:'Sora,sans-serif', letterSpacing:'-2px', lineHeight:1, marginBottom:10 }}>{s.n}</div>
-              <div style={{ fontSize:14, fontWeight:600, color:'#111110' }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </section>
+      </section>
+    </>
   )
 }
