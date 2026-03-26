@@ -73,10 +73,10 @@ export default function Features() {
           </R>
 
           {/* Bento — #1 elevation hierarchy */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(12,1fr)',gap:16}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(12,1fr)',gap:16,gridAutoRows:'auto'}}>
 
             {/* #6 Large card — more padding, cleaner structure */}
-            <R style={{gridColumn:'span 7'}}>
+            <R style={{gridColumn:'span 7'}} className="bento-main">
               <div style={{
                 background:'var(--bg-1)',
                 border:'1.5px solid rgba(0,0,0,0.07)',
@@ -123,7 +123,7 @@ export default function Features() {
             </R>
 
             {/* Right 2 small cards */}
-            <div style={{gridColumn:'span 5',display:'flex',flexDirection:'column',gap:16}}>
+            <div style={{gridColumn:'span 5',display:'flex',flexDirection:'column',gap:16}} className="bento-side">
               {/* India context */}
               <R delay={0.1} style={{flex:1}}>
                 <div style={{
