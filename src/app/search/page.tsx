@@ -204,14 +204,6 @@ function SearchResults(){
   const mediaRef=useRef<MediaRecorder|null>(null)
   const chunksRef=useRef<Blob[]>([])
   const streamRef=useRef<MediaStream|null>(null)
-  const resultsRef=useRef<HTMLDivElement>(null)
-
-  useEffect(()=>{if(recState!=='recording')return;const id=setInterval(()=>setDots(d=>d>=3?1:d+1),450);return()=>clearInterval(id)},[recState])
-
-  useEffect(()=>{
-    const fn=()=>{ if(resultsRef.current){const rect=resultsRef.current.getBoundingClientRect();setVerdictVisible(rect.top<-100)} }
-    window.addEventListener('scroll',fn,{passive:true});return()=>window.removeEventListener('scroll',fn)
-  },[])
 
   const doSearch=async(q:string)=>{
     if(!q.trim())return
@@ -300,7 +292,7 @@ function SearchResults(){
       )}
 
       {!loading&&answer&&(
-        <div ref={resultsRef}>
+        <div>
           {/* Query heading */}
           <div style={{marginBottom:24,paddingBottom:20,borderBottom:'1px solid var(--border)',marginTop:8}}>
             <h1 style={{fontSize:'clamp(20px,3.5vw,28px)',fontWeight:700,color:'var(--ink)',letterSpacing:'-0.8px',marginBottom:8,lineHeight:1.2}}>{query||input}</h1>
