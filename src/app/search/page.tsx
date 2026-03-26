@@ -52,11 +52,11 @@ function VerdictBar({product,visible}:{product:AiProduct|null;visible:boolean}){
   if(!product) return null
   const url=getDirectUrl(product.seller,product.name)
   return(
-    <div style={{position:'fixed',top:60,left:0,right:0,zIndex:80,transform:visible?'translateY(0)':'translateY(-110%)',transition:'transform 0.4s cubic-bezier(0.22,1,0.36,1)',background:'rgba(255,255,255,0.97)',backdropFilter:'blur(20px)',borderBottom:'1px solid var(--border)',padding:'11px clamp(20px,5vw,40px)',display:'flex',alignItems:'center',gap:16,flexWrap:'wrap'}}>
+    <div style={{position:'fixed',top:62,left:0,right:0,zIndex:89,transform:visible?'translateY(0)':'translateY(-110%)',transition:'transform 0.4s cubic-bezier(0.22,1,0.36,1)',background:'rgba(255,255,255,0.97)',backdropFilter:'blur(20px)',borderBottom:'1px solid var(--border)',padding:'11px clamp(20px,5vw,40px)',display:'flex',alignItems:'center',gap:12,flexWrap:'nowrap',overflow:'hidden'}}>
       <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
         <span style={{fontSize:22,fontWeight:800,color:'var(--accent)',letterSpacing:'-1px',flexShrink:0,fontFamily:'var(--font-sans)'}}>{product.rating.toFixed(1)}</span>
         <div style={{minWidth:0}}>
-          <div style={{fontSize:13,fontWeight:600,color:'var(--ink)',letterSpacing:'0.01em',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{product.name}</div>
+          <div style={{fontSize:13,fontWeight:600,color:'var(--ink)',letterSpacing:'0.01em',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:'clamp(120px,40vw,300px)'}}>{product.name}</div>
           <div style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>#1 Best Pick · {product.price}</div>
         </div>
       </div>
@@ -278,7 +278,7 @@ function SearchResults(){
       <VerdictBar product={aiProducts[0]||null} visible={verdictVisible&&aiProducts.length>0}/>
 
       {/* Sticky search */}
-      <div style={{position:'sticky',top:60,zIndex:60,paddingTop:12,paddingBottom:12,background:'rgba(255,255,255,0.97)',backdropFilter:'blur(20px)'}}>
+      <div style={{position:'sticky',top:62,zIndex:60,paddingTop:12,paddingBottom:12,background:'rgba(255,255,255,0.97)',backdropFilter:'blur(20px)'}}>
         <div style={{display:'flex',alignItems:'center',gap:8,background:'var(--bg-1)',border:`1.5px solid ${isRec?'rgba(220,38,38,0.4)':'var(--border-hi)'}`,borderRadius:18,padding:'5px 5px 5px 18px',boxShadow:'var(--shadow-md)',transition:'border-color 0.2s'}}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2.5" strokeLinecap="round" style={{flexShrink:0}}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           <input value={isRec?('Listening'+'.'.repeat(dots)):isProc?'Transcribing...':input} onChange={e=>{if(!isBusy)setInput(e.target.value)}} onKeyDown={e=>e.key==='Enter'&&!isBusy&&submit()} placeholder="Search any product..." readOnly={isBusy}
@@ -305,6 +305,11 @@ function SearchResults(){
         @keyframes dot-bounce{0%,80%,100%{transform:scale(0.6);opacity:0.3}40%{transform:scale(1);opacity:1}}
         @keyframes wave-bar{from{transform:scaleY(0.3)}to{transform:scaleY(1)}}
         @keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+        @media(max-width:640px){
+          .verdict-name{max-width:140px !important;}
+          .ai-card-grid{grid-template-columns:1fr !important;}
+          .serp-card{padding:12px 14px !important;}
+        }
         .reveal{opacity:0;transform:translateY(26px);transition:opacity .65s cubic-bezier(0.22,1,0.36,1),transform .65s cubic-bezier(0.22,1,0.36,1)}
         .reveal.visible{opacity:1;transform:translateY(0)}
       `}</style>
@@ -349,7 +354,7 @@ function SearchResults(){
                 <h2 style={{fontSize:18,fontWeight:700,color:'var(--ink)',letterSpacing:'-0.4px'}}>Top Recommendations</h2>
                 <span style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',border:'1px solid var(--border)',borderRadius:4,padding:'3px 10px',letterSpacing:'1px',textTransform:'uppercase'}}>AI Ranked</span>
               </div>
-              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(min(100%,296px),1fr))',gap:16}}>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(min(100%,280px),1fr))',gap:16}}>
                 {aiProducts.map((p,i)=><AiCard key={i} p={p} idx={i}/>)}
               </div>
             </div>
