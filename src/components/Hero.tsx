@@ -141,7 +141,7 @@ export default function Hero() {
             transition:`border-color var(--t-mid) var(--ease), box-shadow var(--t-mid) var(--ease)`,
             animation:isRec?'mic-ring 1.2s ease infinite':'none',
           }}>
-            <div style={{display:'flex',alignItems:'center',padding:'8px 8px 8px 24px',gap:8}}>
+            <div className='search-bar-inner' style={{display:'flex',alignItems:'center',padding:'8px 8px 8px 24px',gap:8}}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={focused?'var(--accent)':'var(--ink-4)'} strokeWidth="2.5" strokeLinecap="round" style={{flexShrink:0,transition:`stroke var(--t-fast) var(--ease)`}}>
                 <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
               </svg>
@@ -193,7 +193,7 @@ export default function Hero() {
                   transition:`all var(--t-mid) var(--ease)`,
                   flexShrink:0,whiteSpace:'nowrap',
                   boxShadow:query.trim()&&!isBusy?'var(--shadow-btn)':'none',
-                }}>
+                }} className='search-btn'>
                 Search
               </button>
             </div>
@@ -219,7 +219,7 @@ export default function Hero() {
           )}
 
           {/* Example pills — #6 more padding, better spacing */}
-          <div style={{display:'flex',gap:10,marginTop:24,flexWrap:'wrap',justifyContent:'center'}}>
+          <div className='example-pills' style={{display:'flex',gap:10,marginTop:24,flexWrap:'wrap',justifyContent:'center'}}>
             {EXAMPLES.map(ex=>(
               <button key={ex} onClick={()=>go(ex)}
                 style={{
@@ -278,6 +278,17 @@ export default function Hero() {
         @keyframes wave-bar{from{transform:scaleY(0.3)}to{transform:scaleY(1)}}
         @keyframes mic-ring{0%,100%{box-shadow:0 0 0 2px rgba(220,38,38,0.2)}50%{box-shadow:0 0 0 9px rgba(220,38,38,0.03)}}
         @keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+        /* Mobile search fixes */
+        @media (max-width: 640px) {
+          .search-bar-inner { padding: 5px 5px 5px 14px !important; gap: 6px !important; }
+          .search-input { padding: 14px 0 !important; font-size: 15px !important; }
+          .search-btn-text { display: none; }
+          .search-btn { padding: 0 14px !important; }
+          .mic-btn { width: 40px !important; height: 40px !important; }
+          .example-pills { gap: 6px !important; }
+          .example-pills button { font-size: 12px !important; padding: 6px 12px !important; }
+          .hero-stats { gap: 28px !important; margin-top: 56px !important; }
+        }
       `}</style>
     </section>
   )
