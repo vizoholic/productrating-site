@@ -6,6 +6,14 @@ export default function Nav() {
   const [scrolled,setScrolled]=useState(false)
   useEffect(()=>{ const fn=()=>setScrolled(window.scrollY>28); window.addEventListener('scroll',fn); return()=>window.removeEventListener('scroll',fn) },[])
   return(
+    <>
+    <style>{`
+      @media (max-width: 640px) {
+        .nav-links { display: none !important; }
+        .nav-ask-btn { padding: 7px 14px !important; font-size: 12px !important; }
+        .nav-about, .nav-contact { display: none !important; }
+      }
+    `}</style>
     <nav style={{
       position:'fixed',top:0,left:0,right:0,zIndex:90,height:62,
       background:scrolled?'rgba(255,255,255,0.97)':'transparent',
@@ -39,5 +47,6 @@ export default function Nav() {
         </Link>
       </div>
     </nav>
+    </>
   )
 }
