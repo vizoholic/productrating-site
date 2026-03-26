@@ -183,7 +183,6 @@ export default function Hero() {
 
               {/* #4 SEARCH BUTTON — gradient, scale, press */}
               <button onClick={()=>go()} disabled={!query.trim()||isBusy}
-                className={query.trim()&&!isBusy?'btn btn-primary':''}
                 style={{
                   padding:'14px 28px',borderRadius:15,border:'none',
                   background:query.trim()&&!isBusy?'var(--accent)':'var(--bg-3)',
@@ -193,7 +192,7 @@ export default function Hero() {
                   transition:`all var(--t-mid) var(--ease)`,
                   flexShrink:0,whiteSpace:'nowrap',
                   boxShadow:query.trim()&&!isBusy?'var(--shadow-btn)':'none',
-                }} className='search-btn'>
+                }} className='btn-primary search-btn'>
                 Search
               </button>
             </div>
