@@ -47,32 +47,9 @@ function EditorSeal({label}:{label:string}){
   )
 }
 
-// Sticky verdict bar — slides in when user scrolls past first card
-function VerdictBar({product,visible}:{product:AiProduct|null;visible:boolean}){
-  if(!product) return null
-  const url=getDirectUrl(product.seller,product.name)
-  return(
-    <div style={{position:'fixed',top:56,left:0,right:0,zIndex:75,transform:visible?'translateY(0)':'translateY(-110%)',transition:'transform 0.4s cubic-bezier(0.22,1,0.36,1)',background:'rgba(255,255,255,1)',backdropFilter:'blur(20px)',borderBottom:'1px solid var(--border)',padding:'11px clamp(20px,5vw,40px)',display:'flex',alignItems:'center',gap:12,flexWrap:'nowrap',overflow:'hidden'}}>
-      <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
-        <span style={{fontSize:22,fontWeight:800,color:'var(--accent)',letterSpacing:'-1px',flexShrink:0,fontFamily:'var(--font-sans)'}}>{product.rating.toFixed(1)}</span>
-        <div style={{minWidth:0}}>
-          <div style={{fontSize:13,fontWeight:600,color:'var(--ink)',letterSpacing:'0.01em',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',maxWidth:'clamp(120px,40vw,300px)'}}>{product.name}</div>
-          <div style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>#1 Best Pick · {product.price}</div>
-        </div>
-      </div>
-      <a href={url} target="_blank" rel="noopener noreferrer"
-        style={{display:'inline-flex',alignItems:'center',gap:7,background:'var(--accent)',color:'#fff',fontSize:12,fontWeight:600,padding:'8px 18px',borderRadius:'var(--radius)',textDecoration:'none',letterSpacing:'0.02em',flexShrink:0,transition:'background 0.2s',boxShadow:'0 2px 8px rgba(91,79,207,0.3)'}}
-        onMouseEnter={e=>(e.currentTarget.style.background='#4A3FBF')}
-        onMouseLeave={e=>(e.currentTarget.style.background='var(--accent)')}>
-        Check Price
-        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-      </a>
-    </div>
-  )
-}
 
 function AiCard({p,idx}:{p:AiProduct;idx:number}){
-  const [open,setOpen]=useState(true)
+  const [open,setOpen]=useState(false)
   const buyUrl=getDirectUrl(p.seller,p.name)
   const platRating=Math.min(5,p.platform_rating||Math.min(5,p.rating+0.4))
   const aiRating=Math.min(5,Math.max(1,p.rating))
@@ -224,7 +201,6 @@ function SearchResults(){
   const [voiceError,setVoiceError]=useState('')
   const [transcript,setTranscript]=useState('')
   const [dots,setDots]=useState(1)
-  const [verdictVisible,setVerdictVisible]=useState(false)
   const mediaRef=useRef<MediaRecorder|null>(null)
   const chunksRef=useRef<Blob[]>([])
   const streamRef=useRef<MediaStream|null>(null)
@@ -239,7 +215,7 @@ function SearchResults(){
 
   const doSearch=async(q:string)=>{
     if(!q.trim())return
-    setLoading(true);setCalled(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([]);setVerdictVisible(false)
+    setLoading(true);setCalled(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([])
     try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();setAnswer(d.answer||'');setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
     catch{setAnswer('Something went wrong. Please try again.')}finally{setLoading(false)}
   }
@@ -275,7 +251,7 @@ function SearchResults(){
   return(
     <div style={{maxWidth:1040,margin:'0 auto',padding:'clamp(70px,8vw,84px) clamp(16px,4vw,24px) 100px'}}>
 
-      <VerdictBar product={aiProducts[0]||null} visible={verdictVisible&&aiProducts.length>0}/>
+
 
       {/* Sticky search */}
       <div style={{position:'sticky',top:56,zIndex:60,paddingTop:12,paddingBottom:12,background:'rgba(255,255,255,1)',backdropFilter:'blur(20px)'}}>
@@ -357,6 +333,26 @@ function SearchResults(){
               <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(min(100%,280px),1fr))',gap:16}}>
                 {aiProducts.map((p,i)=><AiCard key={i} p={p} idx={i}/>)}
               </div>
+
+              {/* Verdict bar — bottom of cards, no overlap */}
+              {aiProducts[0] && (
+                <div style={{marginTop:20,background:'#FFFFFF',border:'1.5px solid rgba(91,79,207,0.2)',borderRadius:16,padding:'16px 20px',display:'flex',alignItems:'center',gap:16,flexWrap:'wrap',boxShadow:'0 4px 16px rgba(91,79,207,0.1)'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,flex:1,minWidth:0}}>
+                    <span style={{fontSize:22,fontWeight:800,color:'var(--accent)',letterSpacing:'-1px',flexShrink:0}}>{aiProducts[0].rating.toFixed(1)}</span>
+                    <div style={{minWidth:0}}>
+                      <div style={{fontSize:13,fontWeight:600,color:'var(--ink)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{aiProducts[0].name}</div>
+                      <div style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>#1 Best Pick · {aiProducts[0].price}</div>
+                    </div>
+                  </div>
+                  <a href={getDirectUrl(aiProducts[0].seller,aiProducts[0].name)} target="_blank" rel="noopener noreferrer"
+                    style={{display:'inline-flex',alignItems:'center',gap:7,background:'var(--accent)',color:'#fff',fontSize:13,fontWeight:600,padding:'10px 22px',borderRadius:10,textDecoration:'none',letterSpacing:'0.02em',flexShrink:0,transition:'background 0.25s',boxShadow:'0 2px 10px rgba(91,79,207,0.3)'}}
+                    onMouseEnter={e=>(e.currentTarget.style.background='#4A3FBF')}
+                    onMouseLeave={e=>(e.currentTarget.style.background='var(--accent)')}>
+                    Check Price
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  </a>
+                </div>
+              )}
             </div>
           )}
 
