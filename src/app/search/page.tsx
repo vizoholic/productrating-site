@@ -63,31 +63,31 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
 
       {/* Rank header */}
       <div style={{padding:'11px 20px',background:isTop?'var(--accent-bg)':'var(--bg-2)',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <span style={{fontSize:10,fontWeight:600,color:isTop?'var(--accent)':'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase'}}>{rankLabel}</span>
+        <span style={{fontSize:10,fontWeight:700,color:isTop?'#4A3FBF':'#6B6560',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase'}}>{rankLabel}</span>
         {isTop&&<EditorSeal label="Editor's Choice"/>}
       </div>
 
       <div style={{padding:'22px 22px 0',flex:1}}>
-        {p.badge&&<span style={{display:'inline-block',fontSize:10,fontWeight:600,color:'var(--green)',background:'var(--green-bg)',border:'1px solid rgba(22,163,74,0.2)',borderRadius:100,padding:'2px 12px',marginBottom:12,fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>● {p.badge}</span>}
+        {p.badge&&<span style={{display:'inline-block',fontSize:10,fontWeight:700,color:'#15803D',background:'rgba(22,163,74,0.08)',border:'1px solid rgba(22,163,74,0.25)',borderRadius:100,padding:'4px 14px',marginBottom:14,fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase'}}>● {p.badge}</span>}
 
-        <h3 style={{fontWeight:700,fontSize:18,color:'var(--ink)',lineHeight:1.3,letterSpacing:'-0.4px',marginBottom:12}}>{p.name}</h3>
+        <h3 style={{fontWeight:700,fontSize:19,color:'#0D0D0C',lineHeight:1.25,letterSpacing:'-0.5px',marginBottom:14}}>{p.name}</h3>
 
         <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap'}}>
-          <span style={{fontSize:28,fontWeight:800,color:isTop?'var(--accent)':'var(--ink)',letterSpacing:'-1.5px',fontFamily:'var(--font-sans)'}}>{p.price}</span>
+          <span style={{fontSize:30,fontWeight:800,color:isTop?'#4A3FBF':'#0D0D0C',letterSpacing:'-2px',fontFamily:'var(--font-sans)'}}>{p.price}</span>
           {p.seller&&<span style={{fontSize:12,color:'var(--ink-3)',background:'var(--bg-2)',borderRadius:'var(--radius-sm)',padding:'3px 12px',border:'1px solid var(--border)',letterSpacing:'0.01em'}}>{p.seller}</span>}
         </div>
 
         {/* Score block */}
-        <div style={{background:'var(--bg-2)',borderRadius:'var(--radius-lg)',padding:18,marginBottom:16,border:'1px solid var(--border)'}}>
+        <div style={{background:'#F4F3FF',borderRadius:14,padding:20,marginBottom:16,border:'1px solid rgba(91,79,207,0.12)'}}>
           <div style={{display:'flex',gap:18,alignItems:'flex-start',marginBottom:14}}>
             <div>
-              <div style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',marginBottom:8}}>PR Score · {p.reviews||'—'} reviews</div>
+              <div style={{fontSize:10,color:'var(--ink-2)',fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase',fontWeight:500,marginBottom:8}}>PR Score · {p.reviews||'—'} reviews</div>
               <RatingArc score={aiRating} size={60}/>
             </div>
             <div style={{flex:1,paddingTop:4}}>
               {/* Custom progress bar */}
               <div style={{marginBottom:12}}>
-                <div style={{display:'flex',justifyContent:'space-between',fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)',marginBottom:6}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'var(--ink-2)',fontFamily:'var(--font-mono)',marginBottom:6,fontWeight:500}}>
                   <span>AI-adjusted score</span><span>{aiRating.toFixed(1)}/5</span>
                 </div>
                 <div style={{height:4,background:'var(--bg-3)',borderRadius:2,overflow:'hidden'}}>
@@ -95,15 +95,15 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
                 </div>
               </div>
               {/* Platform vs real */}
-              <div style={{background:'var(--bg-1)',borderRadius:'var(--radius-sm)',padding:'10px 12px',border:'1px solid var(--border)',display:'flex',alignItems:'center',gap:8,fontSize:12}}>
+              <div style={{background:'#FFFFFF',borderRadius:10,padding:'12px 14px',border:'1px solid rgba(0,0,0,0.08)',display:'flex',alignItems:'center',gap:8,fontSize:12,boxShadow:'0 1px 4px rgba(0,0,0,0.04)'}}>
                 <div style={{flex:1}}>
                   <div style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',marginBottom:3,textTransform:'uppercase'}}>Platform</div>
-                  <span style={{color:'var(--red)',fontWeight:700,fontSize:15}}>{platRating.toFixed(1)}</span><span style={{color:'var(--ink-4)',fontSize:10,marginLeft:3}}>with fakes</span>
+                  <span style={{color:'#C0392B',fontWeight:700,fontSize:16}}>{platRating.toFixed(1)}</span><span style={{color:'var(--ink-3)',fontSize:11,marginLeft:4,fontWeight:400}}>with fakes</span>
                 </div>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                 <div style={{flex:1}}>
                   <div style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',marginBottom:3,textTransform:'uppercase'}}>Real</div>
-                  <span style={{color:'var(--green)',fontWeight:700,fontSize:15}}>{aiRating.toFixed(1)}</span><span style={{color:'var(--ink-4)',fontSize:10,marginLeft:3}}>AI-adjusted</span>
+                  <span style={{color:'#16A34A',fontWeight:700,fontSize:16}}>{aiRating.toFixed(1)}</span><span style={{color:'var(--ink-3)',fontSize:11,marginLeft:4,fontWeight:400}}>AI-adjusted</span>
                 </div>
               </div>
             </div>
@@ -113,8 +113,8 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
         {/* Why this result */}
         {p.reason&&(
           <div style={{marginBottom:14,padding:'12px 16px',background:'var(--accent-bg)',borderRadius:'var(--radius)',borderLeft:'2.5px solid var(--accent)'}}>
-            <div style={{fontSize:9,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:5}}>Why this result</div>
-            <p style={{fontSize:13,color:'var(--ink-2)',lineHeight:1.75,letterSpacing:'0.01em',fontWeight:300}}>{p.reason}</p>
+            <div style={{fontSize:10,color:'#4A3FBF',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase',fontWeight:700,marginBottom:6}}>Why this result</div>
+            <p style={{fontSize:13,color:'#3D3A36',lineHeight:1.75,letterSpacing:'0.01em',fontWeight:400}}>{p.reason}</p>
           </div>
         )}
 
@@ -122,7 +122,7 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
         {(p.pros?.length>0||p.cons?.length>0||p.avoid_if)&&(
           <div style={{marginBottom:4}}>
             <button onClick={()=>setOpen(!open)}
-              style={{fontSize:10,color:'var(--ink-3)',fontWeight:500,background:'none',border:'none',cursor:'pointer',padding:'0 0 10px',display:'flex',alignItems:'center',gap:6,fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',transition:'color 0.2s'}}
+              style={{fontSize:11,color:'#57534E',fontWeight:600,background:'none',border:'none',cursor:'pointer',padding:'0 0 10px',display:'flex',alignItems:'center',gap:6,fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',transition:'color 0.2s'}}
               onMouseEnter={e=>(e.currentTarget.style.color='var(--ink)')}
               onMouseLeave={e=>(e.currentTarget.style.color='var(--ink-3)')}>
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{transform:open?'rotate(90deg)':'rotate(0)',transition:'transform 0.2s'}}><path d="M9 18l6-6-6-6"/></svg>
