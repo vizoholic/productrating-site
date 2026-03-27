@@ -108,7 +108,7 @@ function getCityProfile(loc: string): CityProfile | null {
   if (/kerala|goa|karnataka|tamil nadu|andhra/.test(l))
     return { label:loc, climate:'Hot+humid', summer_peak_temp:38, humidity:'high', water_hardness:'moderate', power_stability:'moderate', service_hub:false, air_quality:'moderate', boost_features:['humidity resistance','5-star energy','IP rating'], penalise_features:['no humidity protection'], service_brands:['LG','Samsung','Daikin'] }
   if (/himachal|jammu|kashmir|northeast|sikkim|arunachal/.test(l))
-    return { label:loc, climate:'Cold mountain', summer_peak_temp:28, humidity:'moderate', water_hardness:'soft', power_stability:'unstable', service_hub:false, air_quality:'good', boost_features:['heating mode','voltage protection','all-weather performance'], penalise_features:['cooling only'], service_brands:['LG','Samsung'] }
+    return { label:loc, climate:'Cold mountain', summer_peak_temp:28, humidity:'moderate', water_hardness:'soft', power_stability:'frequent_cuts', service_hub:false, air_quality:'good', boost_features:['heating mode','voltage protection','all-weather performance'], penalise_features:['cooling only'], service_brands:['LG','Samsung'] }
   return null
 }
 
