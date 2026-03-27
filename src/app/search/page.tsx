@@ -4,7 +4,8 @@ import { useState, Suspense, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 
-type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; pros:string[]; cons:string[]; avoid_if:string }
+type PlatformPrice = { platform:string; price:string; url:string; availability:string }
+type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; pros:string[]; cons:string[]; avoid_if:string; score?:number; platform_prices?:PlatformPrice[]; best_price?:string; best_price_platform?:string }
 type SerpProduct = { title:string; price:string; rating:number|null; source:string; link:string; thumbnail:string; delivery:string }
 
 function getDirectUrl(seller:string,name:string):string{
@@ -74,14 +75,14 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
 
         <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap'}}>
           <span style={{fontSize:30,fontWeight:800,color:isTop?'#4A3FBF':'#0D0D0C',letterSpacing:'-2px',fontFamily:'var(--font-sans)'}}>{p.price}</span>
-          {p.seller&&<span style={{fontSize:12,color:'var(--ink-3)',background:'var(--bg-2)',borderRadius:'var(--radius-sm)',padding:'3px 12px',border:'1px solid var(--border)',letterSpacing:'0.01em'}}>{p.seller}</span>}
+          
         </div>
 
         {/* Score block */}
         <div style={{background:'#F4F3FF',borderRadius:14,padding:20,marginBottom:16,border:'1px solid rgba(91,79,207,0.12)'}}>
           <div style={{display:'flex',gap:18,alignItems:'flex-start',marginBottom:14}}>
             <div>
-              <div style={{fontSize:10,color:'var(--ink-2)',fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase',fontWeight:500,marginBottom:8}}>PR Score · {p.reviews||'—'} reviews</div>
+              <div style={{fontSize:10,color:'var(--ink-2)',fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase',fontWeight:500,marginBottom:8}}>PR Score · {(p.reviews||'—').replace(/\s*\([^)]*\)/g,'')} reviews</div>
               <RatingArc score={aiRating} size={60}/>
             </div>
             <div style={{flex:1,paddingTop:4}}>
@@ -154,14 +155,64 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
         )}
       </div>
 
-      {/* Buy CTA */}
-      <a href={buyUrl} target="_blank" rel="noopener noreferrer"
-        style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'14px 22px',background:isTop?'var(--accent)':'var(--bg-2)',color:isTop?'#fff':'var(--ink-2)',fontSize:13,fontWeight:600,letterSpacing:'0.02em',textDecoration:'none',transition:'all 0.2s',borderTop:'1px solid var(--border)'}}
-        onMouseEnter={e=>{e.currentTarget.style.background=isTop?'#4A3FBF':'var(--bg-3)'}}
-        onMouseLeave={e=>{e.currentTarget.style.background=isTop?'var(--accent)':'var(--bg-2)'}}>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        Search on {p.seller||'Amazon'}
-      </a>
+      {/* Skyscanner-style price comparison */}
+      <div style={{borderTop:'1px solid var(--border)',background:'var(--bg-2)'}}>
+        {/* Best price headline */}
+        <div style={{padding:'10px 18px 6px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          <div style={{display:'flex',alignItems:'center',gap:7}}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
+            <span style={{fontSize:10,color:'var(--green)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',fontWeight:600}}>Best price</span>
+          </div>
+          <span style={{fontSize:18,fontWeight:800,color:'var(--green)',letterSpacing:'-0.8px'}}>
+            {p.best_price || p.price}
+          </span>
+        </div>
+
+        {/* Platform price list */}
+        {p.platform_prices && p.platform_prices.length > 0 ? (
+          <div style={{display:'flex',flexDirection:'column',gap:1}}>
+            {p.platform_prices.map((pp, pi) => {
+              const isLowest = pi === 0
+              const priceNum = parseInt(pp.price.replace(/[^\d]/g,'')) || 0
+              const bestNum = parseInt((p.best_price||p.price).replace(/[^\d]/g,'')) || priceNum
+              const diff = priceNum - bestNum
+              return (
+                <a key={pi} href={pp.url} target="_blank" rel="noopener noreferrer"
+                  style={{
+                    display:'flex',alignItems:'center',justifyContent:'space-between',
+                    padding:'9px 18px',
+                    background:isLowest?'rgba(22,163,74,0.05)':'var(--bg-1)',
+                    borderTop:'1px solid var(--border)',
+                    textDecoration:'none',
+                    transition:'background 0.2s',
+                  }}
+                  onMouseEnter={e=>(e.currentTarget.style.background=isLowest?'rgba(22,163,74,0.09)':'var(--bg-2)')}
+                  onMouseLeave={e=>(e.currentTarget.style.background=isLowest?'rgba(22,163,74,0.05)':'var(--bg-1)')}>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    {isLowest && <svg width="8" height="8" viewBox="0 0 24 24" fill="var(--green)"><circle cx="12" cy="12" r="10"/></svg>}
+                    <span style={{fontSize:13,fontWeight:isLowest?600:400,color:isLowest?'var(--ink)':'var(--ink-2)',letterSpacing:'0.01em'}}>{pp.platform}</span>
+                    {isLowest && <span style={{fontSize:9,color:'var(--green)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',background:'rgba(22,163,74,0.1)',padding:'2px 6px',borderRadius:4}}>LOWEST</span>}
+                  </div>
+                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                    <span style={{fontSize:14,fontWeight:700,color:isLowest?'var(--green)':'var(--ink-2)',letterSpacing:'-0.5px'}}>{pp.price}</span>
+                    {!isLowest && diff > 0 && <span style={{fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)'}}>+₹{diff.toLocaleString('en-IN')}</span>}
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/></svg>
+                  </div>
+                </a>
+              )
+            })}
+          </div>
+        ) : (
+          /* Fallback single buy button */
+          <a href={buyUrl} target="_blank" rel="noopener noreferrer"
+            style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,padding:'13px 22px',background:isTop?'var(--accent)':'var(--bg-1)',color:isTop?'#fff':'var(--ink-2)',fontSize:13,fontWeight:600,letterSpacing:'0.02em',textDecoration:'none',transition:'all 0.2s',borderTop:'1px solid var(--border)'}}
+            onMouseEnter={e=>{e.currentTarget.style.background=isTop?'#4A3FBF':'var(--bg-2)'}}
+            onMouseLeave={e=>{e.currentTarget.style.background=isTop?'var(--accent)':'var(--bg-1)'}}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Buy on {p.seller||'Amazon'}
+          </a>
+        )}
+      </div>
     </div>
   )
 }
