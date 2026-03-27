@@ -192,29 +192,93 @@ ${serpContext
   let data: { choices?: Array<{ message?: { content?: string } }> } = {}
   try { data = JSON.parse(raw) } catch {}
 
-  const content = data.choices?.[0]?.message?.content || ''
-  const clean = content.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').trim()
-  const parts = clean.split(/---PRODUCTS---/i)
-  const answer = parts[0].trim() || 'Here are the top 3 options.'
+  const rawContent = data.choices?.[0]?.message?.content || ''
 
+  // ── ROBUST CONTENT CLEANING ──
+  // Step 1: Strip ALL <think>...</think> blocks (Sarvam model reasoning tokens)
+  // Use greedy removal in case of nested/malformed tags
+  let content = rawContent
+  // Remove think blocks — loop until none remain (handles nested)
+  let prev = ''
+  while (prev !== content) {
+    prev = content
+    content = content.replace(/<think>[\s\S]*?<\/think>/gi, '')
+  }
+  // Also strip any orphaned opening/closing think tags
+  content = content.replace(/<\/?think>/gi, '').trim()
+
+  // Step 2: Strip markdown bold/italic
+  content = content.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1')
+
+  // Step 3: Find the JSON array — try multiple strategies
+  let answer = ''
   let aiProducts: AiProduct[] = []
-  if (parts[1]) {
-    try {
-      const m = parts[1].match(/\[[\s\S]*\]/)
-      if (m) {
-        aiProducts = JSON.parse(m[0]).slice(0, 3).map((p: Record<string, unknown>) => ({
-          ...p,
-          rating: Math.min(4.8, Math.max(3.5, Number(p.rating) || 4.0)),
-          platform_rating: Math.min(5.0, Math.max(3.8, Number(p.platform_rating) || Math.min(5.0, (Number(p.rating) || 4.0) + 0.35))),
-          pros: Array.isArray(p.pros) ? p.pros.slice(0, 2) : [],
-          cons: Array.isArray(p.cons) ? p.cons.slice(0, 1) : [],
-          avoid_if: String(p.avoid_if || ''),
-        }))
-      }
-    } catch (e) {
-      console.error('[Search] JSON parse failed:', e)
+
+  // Strategy A: Model used ---PRODUCTS--- separator (ideal)
+  const sepParts = content.split(/---PRODUCTS---/i)
+  if (sepParts.length >= 2) {
+    answer = sepParts[0].trim()
+    const jsonStr = sepParts.slice(1).join('')
+    const m = jsonStr.match(/\[[\s\S]*\]/)
+    if (m) {
+      try { aiProducts = JSON.parse(m[0]) } catch (e) { console.error('[Search] Sep parse failed:', e) }
     }
   }
+
+  // Strategy B: No separator — find JSON array anywhere in response
+  if (aiProducts.length === 0) {
+    const jsonMatch = content.match(/\[[\s\S]*?\{[\s\S]*?"name"[\s\S]*?\}[\s\S]*?\]/)
+    if (jsonMatch) {
+      try {
+        aiProducts = JSON.parse(jsonMatch[0])
+        // Answer is everything before the JSON
+        const jsonStart = content.indexOf(jsonMatch[0])
+        answer = content.slice(0, jsonStart).replace(/---PRODUCTS---/i, '').trim()
+      } catch (e) { console.error('[Search] Direct JSON parse failed:', e) }
+    }
+  }
+
+  // Strategy C: Try to find JSON that starts with [{
+  if (aiProducts.length === 0) {
+    const bracketIdx = content.indexOf('[{')
+    if (bracketIdx !== -1) {
+      const jsonCandidate = content.slice(bracketIdx)
+      // Find the matching closing bracket
+      let depth = 0, end = -1
+      for (let i = 0; i < jsonCandidate.length; i++) {
+        if (jsonCandidate[i] === '[') depth++
+        else if (jsonCandidate[i] === ']') { depth--; if (depth === 0) { end = i; break } }
+      }
+      if (end !== -1) {
+        try {
+          aiProducts = JSON.parse(jsonCandidate.slice(0, end + 1))
+          answer = content.slice(0, bracketIdx).replace(/---PRODUCTS---/i, '').trim()
+        } catch (e) { console.error('[Search] Bracket parse failed:', e) }
+      }
+    }
+  }
+
+  // If still no answer text, use full content minus JSON
+  if (!answer && content) {
+    answer = content.replace(/\[[\s\S]*\]/, '').replace(/---PRODUCTS---/i, '').trim().slice(0, 500)
+  }
+  if (!answer) answer = 'Here are the top options for your query.'
+
+  // Sanitise products
+  aiProducts = (Array.isArray(aiProducts) ? aiProducts : []).slice(0, 3).map((p: Record<string, unknown>) => ({
+    ...p,
+    name: String(p.name || 'Product'),
+    price: String(p.price || '—'),
+    seller: String(p.seller || 'Amazon'),
+    rating: Math.min(4.8, Math.max(3.5, Number(p.rating) || 4.0)),
+    platform_rating: Math.min(5.0, Math.max(3.8, Number(p.platform_rating) || Math.min(5.0, (Number(p.rating) || 4.0) + 0.35))),
+    reviews: String(p.reviews || ''),
+    badge: String(p.badge || 'Top Rated'),
+    reason: String(p.reason || ''),
+    pros: Array.isArray(p.pros) ? p.pros.slice(0, 2).map(String) : [],
+    cons: Array.isArray(p.cons) ? p.cons.slice(0, 1).map(String) : [],
+    avoid_if: String(p.avoid_if || ''),
+  }))
 
   // ── GUARANTEE 3 CARDS ──
   // If AI returned fewer than 3, pad from SERP results so the UI always shows 3 cards
