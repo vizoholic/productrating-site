@@ -1,5 +1,5 @@
 // src/lib/search.ts
-// Sarvam AI = STT only | GPT-5.3 (fast) / GPT-5.4 (deep) = product intelligence | Google Shopping = live prices
+// Sarvam = STT only | OpenAI GPT-5.3/5.4 JSON mode = products | Google Shopping = live prices
 
 import { searchGoogleShopping, buildProductContext, type SerpSearchResult } from './serpapi'
 
@@ -25,6 +25,8 @@ function getMonthYear() {
   return `${d.toLocaleString('en-US', { month: 'long' })} ${d.getFullYear()}`
 }
 
+function getYear() { return new Date().getFullYear() }
+
 function detectLang(q: string): string {
   if (/[\u0900-\u097F]/.test(q)) return 'Respond in Hindi. Product names in English ok.'
   if (/[\u0B80-\u0BFF]/.test(q)) return 'Respond in Tamil.'
@@ -45,29 +47,10 @@ function getLocation(city: string, state: string): string {
   return ''
 }
 
-// Queries needing deep reasoning → use gpt-5.4
-// Fast everyday queries → use gpt-5.3-chat-latest
-function selectModel(question: string): { model: string; label: string } {
-  const deepKeywords = /compare|versus|vs\b|difference|which is better|recommend|expert|review analysis|under budget|best value|should i buy/i
-  if (deepKeywords.test(question)) {
-    return { model: 'gpt-5.4', label: 'GPT-5.4' }
-  }
-  return { model: 'gpt-5.3-chat-latest', label: 'GPT-5.3' }
-}
-
-function extractJsonArray(text: string): unknown[] {
-  const start = text.indexOf('[')
-  if (start === -1) return []
-  let depth = 0, end = -1
-  for (let i = start; i < text.length; i++) {
-    if (text[i] === '[') depth++
-    else if (text[i] === ']') { depth--; if (depth === 0) { end = i; break } }
-  }
-  if (end === -1) return []
-  const s = text.slice(start, end + 1)
-  try { return JSON.parse(s) } catch {
-    try { return JSON.parse(s.replace(/,(\s*[}\]])/g, '$1')) } catch { return [] }
-  }
+function selectModel(q: string): string {
+  return /compare|versus|\bvs\b|difference|which is better|recommend|expert|best value|should i buy/i.test(q)
+    ? 'gpt-5.4'
+    : 'gpt-5.3-chat-latest'
 }
 
 function sanitise(p: Record<string, unknown>, i: number): AiProduct {
@@ -87,7 +70,45 @@ function sanitise(p: Record<string, unknown>, i: number): AiProduct {
   }
 }
 
-async function callOpenAI(model: string, systemPrompt: string, userMsg: string, apiKey: string): Promise<string> {
+// ── OpenAI: JSON mode guarantees structured output every time ──
+async function callOpenAI(
+  question: string, serpContext: string, loc: string,
+  lang: string, monthYear: string, currentYear: number,
+  model: string, apiKey: string
+): Promise<{ answer: string; products: unknown[] }> {
+
+  const systemPrompt = [
+    `You are ProductRating.in, India's most trusted AI product advisor. Today: ${monthYear}.`,
+    lang || null,
+    loc ? `User location: ${loc}. Personalise for local climate and service availability.` : null,
+    ``,
+    `SCORING (rank candidates out of 100, pick best 3):`,
+    `  RELEVANCE  40pts — matches query specs/budget/use case?`,
+    `  RECENCY    30pts — ${currentYear} launch=30 | ${currentYear-1}=22 | ${currentYear-2}=12 | older=0`,
+    `  REVIEWS    20pts — 50k+=20 | 20k-50k=15 | 5k-20k=10 | <5k=5`,
+    `  RATING     10pts — 4.5+=10 | 4.2-4.4=7 | 4.0-4.1=5 | <4.0=0`,
+    ``,
+    `EVERGREEN: older product OK only if still sold NEW + 25k+ reviews + specs still competitive.`,
+    ``,
+    `PR SCORE = platform rating minus fake review removal (0.2-0.5 lower). Be honest about this.`,
+    ``,
+    `India service reliability: Samsung > Xiaomi/Redmi > Realme > iQOO > CMF/Nothing`,
+    `Top brands ${currentYear}: iQOO Z/Neo series, CMF Phone 2 Pro, Moto G96/Edge 50, Realme P4/GT7, Redmi 14/15 5G, Samsung A55/A56, POCO X7, Vivo T5.`,
+    ``,
+    `RESPOND WITH VALID JSON ONLY — this is enforced. Use exactly this shape:`,
+    `{`,
+    `  "answer": "2-3 sentences of specific buying advice for India mentioning key tradeoff",`,
+    `  "products": [`,
+    `    {"name":"Full Name","price":"₹XX,XXX","seller":"Amazon","rating":4.2,"platform_rating":4.6,"reviews":"18k","badge":"Best Pick","reason":"Why this wins for this query","pros":["Specific pro 1","Specific pro 2"],"cons":["Main real complaint"],"avoid_if":"Who should skip"},`,
+    `    {"name":"Second","price":"₹XX,XXX","seller":"Flipkart","rating":4.0,"platform_rating":4.4,"reviews":"12k","badge":"Best Value","reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"..."},`,
+    `    {"name":"Third","price":"₹XX,XXX","seller":"Amazon","rating":3.9,"platform_rating":4.3,"reviews":"9k","badge":"Budget Pick","reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"..."}`,
+    `  ]`,
+    `}`,
+  ].filter(Boolean).join('\n')
+
+  const userMsg = `Question: ${question}${loc ? `\nLocation: ${loc}` : ''}` +
+    (serpContext ? `\n\nLive prices from Indian platforms (use for real availability and price):\n${serpContext}` : `\n\nUse your knowledge of Indian market as of ${monthYear}.`)
+
   for (let attempt = 0; attempt <= 2; attempt++) {
     try {
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -101,6 +122,7 @@ async function callOpenAI(model: string, systemPrompt: string, userMsg: string, 
           ],
           max_tokens: 2000,
           temperature: 0.3,
+          response_format: { type: 'json_object' }, // Forces valid JSON — no text-only responses
         }),
       })
       if (res.status === 429) {
@@ -110,21 +132,26 @@ async function callOpenAI(model: string, systemPrompt: string, userMsg: string, 
       }
       const raw = await res.text()
       console.log(`[OpenAI:${model}] status=${res.status} len=${raw.length}`)
-      if (!res.ok) { console.error('[OpenAI] error:', raw.slice(0, 300)); return '' }
+      if (!res.ok) { console.error('[OpenAI] error body:', raw.slice(0, 400)); return { answer: '', products: [] } }
+
       const d = JSON.parse(raw)
-      const content = d?.choices?.[0]?.message?.content || ''
-      console.log(`[OpenAI] preview: ${content.slice(0, 120)}`)
-      return content
+      const content: string = d?.choices?.[0]?.message?.content || '{}'
+      console.log(`[OpenAI] content preview: ${content.slice(0, 200)}`)
+
+      const parsed = JSON.parse(content)
+      const prods = Array.isArray(parsed.products) ? parsed.products : []
+      console.log(`[OpenAI] products parsed: ${prods.length}`)
+      return { answer: String(parsed.answer || ''), products: prods }
     } catch (e) {
-      console.error(`[OpenAI] attempt ${attempt + 1} threw:`, String(e))
+      console.error(`[OpenAI] attempt ${attempt + 1}:`, String(e))
       if (attempt < 2) await new Promise(r => setTimeout(r, 1000))
     }
   }
-  return ''
+  return { answer: '', products: [] }
 }
 
-// Sarvam fallback if OpenAI not configured
-async function callSarvam(systemPrompt: string, userMsg: string, apiKey: string): Promise<string> {
+// ── Sarvam: fallback text-based parsing ──
+async function callSarvam(systemPrompt: string, userMsg: string, apiKey: string): Promise<{ answer: string; products: unknown[] }> {
   for (let attempt = 0; attempt <= 3; attempt++) {
     try {
       const res = await fetch('https://api.sarvam.ai/v1/chat/completions', {
@@ -140,19 +167,35 @@ async function callSarvam(systemPrompt: string, userMsg: string, apiKey: string)
         if (attempt < 3) await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 8000)))
         continue
       }
-      const raw = await res.text()
-      if (!res.ok) return ''
-      const d = JSON.parse(raw)
-      let c = d?.choices?.[0]?.message?.content || ''
+      if (!res.ok) return { answer: '', products: [] }
+      const d = JSON.parse(await res.text())
+      let c: string = d?.choices?.[0]?.message?.content || ''
       let prev = ''
       while (prev !== c) { prev = c; c = c.replace(/<think>[\s\S]*?<\/think>/gi, '') }
-      return c.replace(/<\/?think[^>]*>/gi, '').trim()
+      c = c.replace(/<\/?think[^>]*>/gi, '').trim()
+      console.log(`[Sarvam] content preview: ${c.slice(0, 150)}`)
+
+      const sepIdx = c.search(/---PRODUCTS---/i)
+      const answer = (sepIdx !== -1 ? c.slice(0, sepIdx) : c.slice(0, 400)).replace(/\*\*(.*?)\*\*/g, '$1').trim()
+      const jsonPart = sepIdx !== -1 ? c.slice(sepIdx + 15) : c
+      const start = jsonPart.indexOf('[')
+      if (start === -1) return { answer, products: [] }
+      let depth = 0, end = -1
+      for (let i = start; i < jsonPart.length; i++) {
+        if (jsonPart[i] === '[') depth++
+        else if (jsonPart[i] === ']') { depth--; if (depth === 0) { end = i; break } }
+      }
+      if (end === -1) return { answer, products: [] }
+      try {
+        const prods = JSON.parse(jsonPart.slice(start, end + 1))
+        return { answer, products: Array.isArray(prods) ? prods : [] }
+      } catch { return { answer, products: [] } }
     } catch (e) {
       console.error(`[Sarvam] attempt ${attempt + 1}:`, String(e))
       if (attempt < 3) await new Promise(r => setTimeout(r, 1000))
     }
   }
-  return ''
+  return { answer: '', products: [] }
 }
 
 export async function runSearch(
@@ -166,12 +209,12 @@ export async function runSearch(
   if (hit && Date.now() - hit.ts < CACHE_TTL) { console.log('[Search] cache hit'); return hit.result }
 
   const monthYear = getMonthYear()
-  const currentYear = new Date().getFullYear()
+  const currentYear = getYear()
   const lang = detectLang(question)
   const loc = getLocation(city, state)
-  const { model, label } = selectModel(question)
+  const model = selectModel(question)
 
-  // SERP — live prices from Google Shopping
+  // Google Shopping — live prices
   let serpResult: SerpSearchResult = { products: [], relatedSearches: [], query: question }
   try {
     serpResult = await searchGoogleShopping(question)
@@ -179,91 +222,42 @@ export async function runSearch(
   } catch (e) { console.error('[SERP]:', String(e)) }
   const serpContext = buildProductContext(serpResult)
 
-  // ── SCORING FRAMEWORK (restored from previous design) ──
-  const scoringFramework = `
-PRODUCT SCORING MODEL — score each candidate out of 100 to pick top 3:
+  // Call AI
+  let answer = '', rawProducts: unknown[] = []
 
-  RELEVANCE  (40 pts) — Matches query specs/budget? Right category? Right use case?
-  RECENCY    (30 pts) — ${currentYear} launch = 30 | ${currentYear-1} = 22 | ${currentYear-2} = 12 | Older = 0
-  REVIEWS    (20 pts) — 50k+ = 20 | 20k-50k = 15 | 5k-20k = 10 | <5k = 5
-  RATING     (10 pts) — Platform 4.5+ = 10 | 4.2-4.4 = 7 | 4.0-4.1 = 5 | <4.0 = 0
-
-EVERGREEN EXCEPTION — older product (${currentYear-2}+) may appear if ALL 3 true:
-  ✓ Still sold NEW on Amazon.in / Flipkart at current market price (not discontinued)
-  ✓ 25,000+ genuine reviews with ongoing buyer activity
-  ✓ Specs still competitive vs current alternatives at its price
-
-EXAMPLES — good evergreen: Redmi Note 13 (massive reviews, active stock, competitive)
-EXAMPLES — avoid: Redmi Note 12 (replaced), Samsung M33 (M35 released), Narzo 60x (replaced)`
-
-  const systemPrompt = `You are ProductRating.in, India's most trusted AI product advisor. Today: ${monthYear}.
-${lang ? lang + '\n' : ''}${loc ? `User location: ${loc}. Personalise for their climate and service availability.\n` : ''}
-
-YOUR DIFFERENTIATOR — FAKE REVIEW REMOVAL:
-Your PR Score is ALWAYS lower than platform ratings because you remove:
-- Incentivised/paid reviews · Bot-generated verified reviews · Sudden rating spikes · Seller promotions
-This is why you show 4.2 when Amazon shows 4.7. Be honest — that's your brand.
-
-${scoringFramework}
-
-INDIA MARKET INTELLIGENCE:
-- Service density: Samsung > Xiaomi/Redmi > Realme > iQOO > CMF/Nothing (newer brand)
-- Hard water (most of India): flag washing machine motor compatibility
-- Power fluctuation cities: inverter AC/compressor is non-negotiable
-- Monsoon / high-humidity areas (coastal): check IP rating for electronics
-- Strong brands for India ${currentYear}: iQOO Z/Neo, CMF Phone 2 Pro, Moto G96/Edge 50, Realme P4/GT 7, Redmi 14/15, Samsung A55/A56, POCO X7, Vivo T5
-
-RESPONSE FORMAT — follow exactly, no preamble, no markdown:
-
-[2-3 sentences of specific buying advice mentioning key tradeoff]
----PRODUCTS---
-[{"name":"Full Product Name","price":"₹XX,XXX","seller":"Amazon","rating":4.2,"platform_rating":4.6,"reviews":"18k","badge":"Best Pick","reason":"One sentence why this wins for THIS specific query","pros":["Specific factual pro 1","Specific factual pro 2"],"cons":["Main real buyer complaint"],"avoid_if":"Specific who should not buy"},{"name":"Second Product","price":"₹XX,XXX","seller":"Flipkart","rating":4.0,"platform_rating":4.4,"reviews":"12k","badge":"Best Value","reason":"Why second","pros":["Pro 1","Pro 2"],"cons":["Con"],"avoid_if":"Skip if"},{"name":"Third Product","price":"₹XX,XXX","seller":"Amazon","rating":3.9,"platform_rating":4.3,"reviews":"9k","badge":"Budget Pick","reason":"Why third","pros":["Pro 1","Pro 2"],"cons":["Con"],"avoid_if":"Skip if"}]`
-
-  const userMsg = `Question: ${question}${loc ? `\nLocation: ${loc}` : ''}
-Current date: ${monthYear}
-
-${serpContext
-    ? `Live data from Indian shopping platforms (ground truth for price and availability):\n${serpContext}\n\nApply the scoring framework to rank these + add any better alternatives from your knowledge.`
-    : `Use your knowledge of the Indian market as of ${monthYear}. Apply the scoring framework carefully.`}`
-
-  // Call OpenAI (primary) or Sarvam (fallback)
-  let rawContent = ''
   if (openaiKey) {
-    console.log(`[Search] using ${label}`)
-    rawContent = await callOpenAI(model, systemPrompt, userMsg, openaiKey)
-    // If gpt-5.3 fails or returns nothing, retry with gpt-5.4
-    if (!rawContent && model !== 'gpt-5.4') {
+    console.log(`[Search] OpenAI ${model} JSON mode`)
+    const r = await callOpenAI(question, serpContext, loc, lang, monthYear, currentYear, model, openaiKey)
+    answer = r.answer; rawProducts = r.products
+
+    // Auto-upgrade to gpt-5.4 if 5.3 returned nothing
+    if ((!answer || rawProducts.length === 0) && model !== 'gpt-5.4') {
       console.log('[Search] retrying with gpt-5.4')
-      rawContent = await callOpenAI('gpt-5.4', systemPrompt, userMsg, openaiKey)
+      const r2 = await callOpenAI(question, serpContext, loc, lang, monthYear, currentYear, 'gpt-5.4', openaiKey)
+      if (r2.answer || r2.products.length > 0) { answer = r2.answer; rawProducts = r2.products }
     }
   }
-  if (!rawContent && sarvamKey) {
-    console.log('[Search] falling back to Sarvam')
-    rawContent = await callSarvam(systemPrompt, userMsg, sarvamKey)
+
+  if (!answer && rawProducts.length === 0 && sarvamKey) {
+    console.log('[Search] Sarvam fallback')
+    const sp = `You are ProductRating.in. Today: ${monthYear}.${lang ? ' ' + lang : ''}${loc ? ' Location: ' + loc + '.' : ''}
+Recommend 3 products for Indian buyers. Prefer ${currentYear} launches. Older ok if 25k+ reviews and still sold.
+Write 2 sentences of advice then ---PRODUCTS--- then JSON array of 3 products with: name,price,seller,rating,platform_rating,reviews,badge,reason,pros,cons,avoid_if`
+    const um = `Question: ${question}${loc ? ' Location: ' + loc : ''}${serpContext ? '\n\nLive prices:\n' + serpContext : ''}`
+    const r = await callSarvam(sp, um, sarvamKey)
+    answer = r.answer; rawProducts = r.products
   }
 
-  if (!rawContent) {
+  if (!answer && rawProducts.length === 0) {
     return { answer: 'AI is temporarily unavailable. Please try again.', aiProducts: [], serpProducts: serpResult.products, relatedSearches: serpResult.relatedSearches }
   }
 
-  // Parse response
-  const sepIdx = rawContent.search(/---PRODUCTS---/i)
-  const answer = (sepIdx !== -1 ? rawContent.slice(0, sepIdx) : rawContent.slice(0, 500))
-    .replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1').trim()
-    || 'Here are the top options for India right now.'
-
-  const jsonSection = sepIdx !== -1 ? rawContent.slice(sepIdx + 15) : rawContent
-  let rawArr = extractJsonArray(jsonSection)
-  if (rawArr.length === 0) rawArr = extractJsonArray(rawContent)
-
-  console.log(`[Search] parsed ${rawArr.length} products via ${label}`)
-
-  let aiProducts: AiProduct[] = (rawArr as Record<string, unknown>[])
+  let aiProducts: AiProduct[] = (rawProducts as Record<string, unknown>[])
     .filter(p => p && typeof p.name === 'string' && p.name.length > 2)
     .slice(0, 3)
     .map(sanitise)
 
-  // Fill from SERP if AI returned fewer than 3
+  // Fill from SERP if fewer than 3
   if (aiProducts.length < 3 && serpResult.products.length > 0) {
     const used = new Set(aiProducts.map(p => p.name.toLowerCase()))
     const fill = serpResult.products
@@ -275,15 +269,15 @@ ${serpContext
         platform_rating: sp.rating ? Math.min(5.0, Number(sp.rating) + 0.3) : 4.3,
         reviews: '', badge: (['Best Pick','Best Value','Budget Pick'][aiProducts.length + i]) || 'Top Rated',
         reason: `Top result on ${sp.source || 'Amazon'} for this query.`,
-        pros: ['Competitive price in India', 'Well-reviewed by Indian buyers'],
-        cons: ['Compare specs before buying'],
+        pros: ['Competitive price in India', 'Well-reviewed by buyers'],
+        cons: ['Compare full specs before buying'],
         avoid_if: 'If you need detailed AI analysis — try again shortly',
       }))
     aiProducts = [...aiProducts, ...fill]
   }
 
   const result: SearchResult = {
-    answer,
+    answer: answer || 'Here are the top options for India right now.',
     aiProducts: aiProducts.slice(0, 3),
     serpProducts: serpResult.products,
     relatedSearches: serpResult.relatedSearches,
