@@ -1,4 +1,4 @@
-// src/lib/search.ts — balanced recency + evergreen strategy
+// src/lib/search.ts
 
 import { searchGoogleShopping, buildProductContext } from './serpapi'
 
@@ -19,53 +19,98 @@ export type SearchResult = {
 const cache = new Map<string, { result: SearchResult; ts: number }>()
 const CACHE_TTL = 30 * 60 * 1000
 
-const TIER1 = new Set(['delhi','new delhi','mumbai','bombay','bangalore','bengaluru','chennai','kolkata','calcutta','hyderabad','secunderabad','pune','ahmedabad','surat'])
-const TIER2 = new Set(['jaipur','lucknow','kanpur','nagpur','visakhapatnam','vizag','bhopal','patna','vadodara','ghaziabad','ludhiana','agra','nashik','faridabad','meerut','rajkot','varanasi','aurangabad','amritsar','ranchi','coimbatore','bhubaneswar','kochi','cochin','dehradun','indore','noida','gurgaon','gurugram','thane','navi mumbai','chandigarh','guwahati'])
-
-function getLocationContext(city: string, state: string): { level: 'city'|'state'|'general'; label: string } {
-  const c = city.toLowerCase().trim()
-  const s = state.toLowerCase().trim()
-  if (c && (TIER1.has(c) || TIER2.has(c))) return { level: 'city', label: city }
-  if (c && c.length > 2) return { level: 'state', label: state || city }
-  if (s && s.length > 2) return { level: 'state', label: state }
-  return { level: 'general', label: '' }
+function getMonthYear() {
+  const d = new Date()
+  return `${d.toLocaleString('en-US',{month:'long'})} ${d.getFullYear()}`
 }
 
-function detectLang(question: string): string {
-  const langMap: [RegExp, string][] = [
-    [/[\u0900-\u097F]/, 'Respond ENTIRELY in Hindi (Devanagari). Product names/prices in English is fine.'],
-    [/[\u0B80-\u0BFF]/, 'Respond ENTIRELY in Tamil.'],
-    [/[\u0C00-\u0C7F]/, 'Respond ENTIRELY in Telugu.'],
-    [/[\u0980-\u09FF]/, 'Respond ENTIRELY in Bengali.'],
-    [/[\u0C80-\u0CFF]/, 'Respond ENTIRELY in Kannada.'],
-    [/[\u0D00-\u0D7F]/, 'Respond ENTIRELY in Malayalam.'],
-    [/[\u0A80-\u0AFF]/, 'Respond ENTIRELY in Gujarati.'],
-    [/[\u0A00-\u0A7F]/, 'Respond ENTIRELY in Punjabi (Gurmukhi).'],
-  ]
-  for (const [re, inst] of langMap) if (re.test(question)) return `IMPORTANT: ${inst}`
-  if (/\b(kaunsa|kaun sa|mein|ke andar|kya hai|sahi|chahiye|konsa|wala|bahut)\b/i.test(question))
-    return 'IMPORTANT: Respond in natural Hinglish — mix Hindi and English as Indians speak.'
+function detectLang(q: string): string {
+  if (/[\u0900-\u097F]/.test(q)) return 'Respond in Hindi. Product names in English ok.'
+  if (/[\u0B80-\u0BFF]/.test(q)) return 'Respond in Tamil.'
+  if (/[\u0C00-\u0C7F]/.test(q)) return 'Respond in Telugu.'
+  if (/[\u0980-\u09FF]/.test(q)) return 'Respond in Bengali.'
+  if (/\b(kaunsa|kaun sa|mein|ke andar|chahiye|konsa|wala)\b/i.test(q)) return 'Respond in Hinglish.'
   return ''
 }
 
-function isRecencyQuery(q: string): boolean {
-  return /phone|mobile|smartphone|laptop|tablet|ac|refrigerator|washing machine|tv|television|earbuds|headphone|speaker|camera|smartwatch|5g|foldable|processor|gaming/i.test(q)
+function getLocation(city: string, state: string) {
+  const CITIES = new Set(['delhi','new delhi','mumbai','bombay','bangalore','bengaluru','chennai','kolkata','hyderabad','pune','ahmedabad','surat','jaipur','lucknow','noida','gurgaon','gurugram','coimbatore','kochi'])
+  const c = city.toLowerCase().trim()
+  if (c && CITIES.has(c)) return city
+  if (c && c.length > 2) return city
+  if (state && state.length > 2) return state
+  return ''
 }
 
-function getDateContext(): string {
-  const now = new Date()
-  return `${now.toLocaleString('en-US', { month: 'long' })} ${now.getFullYear()}`
-}
-
-async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 3): Promise<Response> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const res = await fetch(url, options)
-    if (res.status !== 429) return res
-    const waitMs = Math.min(1000 * Math.pow(2, attempt), 10000)
-    if (attempt < maxRetries) await new Promise(r => setTimeout(r, waitMs))
-    else return res
+// Strip <think> blocks — loop until all gone
+function stripThink(text: string): string {
+  let prev = ''
+  while (prev !== text) {
+    prev = text
+    text = text.replace(/<think>[\s\S]*?<\/think>/gi, '')
   }
-  throw new Error('Max retries exceeded')
+  return text.replace(/<\/?think[^>]*>/gi, '').trim()
+}
+
+// Walk brackets to extract valid JSON array
+function extractJsonArray(text: string): unknown[] {
+  const start = text.indexOf('[')
+  if (start === -1) return []
+  let depth = 0, end = -1
+  for (let i = start; i < text.length; i++) {
+    if (text[i] === '[') depth++
+    else if (text[i] === ']') { depth--; if (depth === 0) { end = i; break } }
+  }
+  if (end === -1) return []
+  try { return JSON.parse(text.slice(start, end + 1)) } catch { return [] }
+}
+
+function sanitise(p: Record<string, unknown>, i: number): AiProduct {
+  const rating = Math.min(4.8, Math.max(3.5, Number(p.rating) || 4.0))
+  return {
+    name:            String(p.name || '').trim(),
+    price:           String(p.price || '—'),
+    seller:          String(p.seller || 'Amazon'),
+    rating,
+    platform_rating: Math.min(5.0, Math.max(rating + 0.2, Number(p.platform_rating) || rating + 0.35)),
+    reviews:         String(p.reviews || ''),
+    badge:           String(p.badge || ['Best Pick','Runner Up','Third Pick'][i] || 'Top Rated'),
+    reason:          String(p.reason || ''),
+    pros:            Array.isArray(p.pros)  ? p.pros.slice(0,2).map(String)  : [],
+    cons:            Array.isArray(p.cons)  ? p.cons.slice(0,1).map(String)  : [],
+    avoid_if:        String(p.avoid_if || ''),
+  }
+}
+
+async function callSarvam(prompt: string, userMsg: string, apiKey: string): Promise<string> {
+  for (let attempt = 0; attempt <= 3; attempt++) {
+    const res = await fetch('https://api.sarvam.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'api-subscription-key': apiKey },
+      body: JSON.stringify({
+        model: 'sarvam-m',
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: userMsg },
+        ],
+        max_tokens: 2000,
+        temperature: 0.3,
+      }),
+    })
+    if (res.status === 429) {
+      console.log(`[Sarvam] 429 attempt ${attempt+1}, waiting...`)
+      if (attempt < 3) await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 8000)))
+      continue
+    }
+    const raw = await res.text()
+    console.log(`[Sarvam] status=${res.status} length=${raw.length}`)
+    if (!res.ok) { console.error('[Sarvam] Error:', raw.slice(0,200)); return '' }
+    try {
+      const d = JSON.parse(raw)
+      return d?.choices?.[0]?.message?.content || ''
+    } catch { return '' }
+  }
+  return ''
 }
 
 export async function runSearch(
@@ -74,257 +119,98 @@ export async function runSearch(
   apiKey: string
 ): Promise<SearchResult> {
   const cacheKey = `${question.toLowerCase().trim()}|${city}|${state}`
-  const cached = cache.get(cacheKey)
-  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.result
+  const hit = cache.get(cacheKey)
+  if (hit && Date.now() - hit.ts < CACHE_TTL) { console.log('[Search] cache hit'); return hit.result }
 
+  const monthYear = getMonthYear()
   const lang = detectLang(question)
-  const loc = getLocationContext(city, state)
-  const isRecency = isRecencyQuery(question)
-  const dateCtx = getDateContext()
+  const loc  = getLocation(city, state)
 
-  let locationPrompt = ''
-  if (loc.level === 'city') {
-    locationPrompt = `USER CITY: ${loc.label}\nPersonalise ALL recommendations for ${loc.label}. Mention location ONLY in the opening summary.`
-  } else if (loc.level === 'state') {
-    locationPrompt = `USER STATE/REGION: ${loc.label}\nPersonalise recommendations for ${loc.label}. Mention location ONLY in the opening summary.`
-  } else {
-    locationPrompt = `No location provided. Give general India-wide recommendations.`
+  // SERP — don't let 429 block everything
+  let serpResult = { products: [] as SearchResult['serpProducts'], relatedSearches: [] as string[], query: question }
+  try {
+    serpResult = await searchGoogleShopping(question)
+    console.log(`[SERP] ok: ${serpResult.products.length} products`)
+  } catch (e) {
+    console.error('[SERP] failed:', String(e))
   }
-
-  // Dual search: current + popular — gets both fresh AND evergreen results
-  const baseQuery = loc.label ? `${question} ${loc.label}` : question
-  const serpResult = await searchGoogleShopping(baseQuery)
-    .catch(() => ({ products: [], relatedSearches: [], query: question }))
   const serpContext = buildProductContext(serpResult)
 
-  // ── SCORING FRAMEWORK — the core intelligence ──
-  const scoringFramework = isRecency ? `
-PRODUCT SELECTION FRAMEWORK — use this exact scoring model:
+  // ── PROMPT — simple, explicit, proven format ──
+  const systemPrompt = `You are ProductRating.in, India's AI product advisor. Today: ${monthYear}.
+${lang ? lang + '\n' : ''}${loc ? `User location: ${loc}\n` : ''}
+Recommend 3 products for Indian buyers. Prefer 2024-2025 launches. Older products ok if still actively sold with many reviews.
 
-Score each candidate product out of 100:
-  RELEVANCE (40 pts)  — Does it match the query well? Right price range? Right specs?
-  RECENCY   (30 pts)  — Is it 2024-25 launch? (30pts) | 2023 launch? (20pts) | 2022 launch? (10pts) | Older? (0pts — skip unless evergreen exception below)
-  REVIEWS   (20 pts)  — 50k+ reviews = 20pts | 20k-50k = 15pts | 5k-20k = 10pts | <5k = 5pts
-  RATING    (10 pts)  — Platform rating 4.5+ = 10pts | 4.2-4.4 = 7pts | 4.0-4.1 = 5pts | <4.0 = 0pts
+RESPOND IN EXACTLY THIS FORMAT — nothing else:
 
-EVERGREEN EXCEPTION — A product older than 18 months CAN appear if ALL 3 are true:
-  ✓ Still actively sold NEW on Amazon.in or Flipkart at current price (not discontinued/grey market)
-  ✓ Has 30,000+ reviews with genuine sustained buyer activity  
-  ✓ Still competitive on specs vs current alternatives at its price
+[2-3 sentences of buying advice for India]
+---PRODUCTS---
+[
+  {"name":"Full Product Name","price":"₹XX,XXX","seller":"Amazon","rating":4.2,"platform_rating":4.6,"reviews":"18k","badge":"Best Pick","reason":"Why this wins","pros":["Pro 1","Pro 2"],"cons":["Main con"],"avoid_if":"Who to skip"},
+  {"name":"Second Product","price":"₹XX,XXX","seller":"Flipkart","rating":4.0,"platform_rating":4.4,"reviews":"12k","badge":"Best Value","reason":"Why second","pros":["Pro 1","Pro 2"],"cons":["Main con"],"avoid_if":"Who to skip"},
+  {"name":"Third Product","price":"₹XX,XXX","seller":"Amazon","rating":3.8,"platform_rating":4.2,"reviews":"8k","badge":"Budget Pick","reason":"Why third","pros":["Pro 1","Pro 2"],"cons":["Main con"],"avoid_if":"Who to skip"}
+]`
 
-EXAMPLES of good evergreen: Redmi Note 13 (huge review volume, still actively stocked, competitive specs for price)
-EXAMPLES to AVOID: Redmi Note 12 (successor launched), Samsung M33 (M34/M35 replaced it), Narzo 60x (replaced by Narzo 80 series)
+  const userMsg = question + (loc ? `\nLocation: ${loc}` : '') +
+    (serpContext ? `\n\nLive prices from Indian platforms:\n${serpContext}` : '\n\nUse your knowledge of Indian market.')
 
-CURRENT DATE: ${dateCtx}
-STRONG PREFERENCE for: iQOO Z series, CMF Phone 2 Pro, Moto G96/Edge 50, Realme P4/GT series, Redmi 14/15, Samsung A 2024, POCO X7, Vivo T5
-` : `
-PRODUCT SELECTION: Pick the 3 most genuinely useful products for this query.
-For appliances (AC, fridge, washing machine): consider that good products last 5-7 years and models from 2020-2022 may still be actively sold with large review bases. These are valid recommendations.
-For electronics: prefer recent 2024-2025 launches but include well-reviewed older models if they still sell actively.
-CURRENT DATE: ${dateCtx}
-`
+  console.log(`[Search] calling Sarvam for: ${question}`)
+  const rawContent = await callSarvam(systemPrompt, userMsg, apiKey)
+  console.log(`[Search] Sarvam raw length: ${rawContent.length}`)
+  console.log(`[Search] Sarvam preview: ${rawContent.slice(0, 200)}`)
 
-  const systemPrompt = `You are ProductRating.in — India's most trusted AI product advisor.
-${lang}
-${locationPrompt}
-${scoringFramework}
+  const content = stripThink(rawContent)
+  console.log(`[Search] after stripThink length: ${content.length}`)
 
-YOUR KEY DIFFERENTIATOR — FAKE REVIEW REMOVAL:
-You are NOT just another LLM. You strip fake reviews before scoring. The "PR Score" is always lower than what Amazon/Flipkart show because you remove:
-- Incentivised reviews ("Got free product for review")
-- Verified but bot-generated reviews
-- Review bombing (sudden spikes)
-- Seller-paid promotions
-This is why your PR Score shows 4.2 when Amazon shows 4.7 — you're more honest.
+  // Extract answer text
+  const sepIdx = content.search(/---PRODUCTS---/i)
+  const answer = (sepIdx !== -1 ? content.slice(0, sepIdx) : content.slice(0, 500))
+    .replace(/\*\*(.*?)\*\*/g, '$1').trim()
+    || 'Here are the top options for India right now.'
 
-INDIA CONTEXT INTELLIGENCE:
-- After-sales service density: Samsung > Xiaomi/Redmi > iQOO > CMF (newer brand, fewer centres)
-- For cities with poor power supply: inverter AC/fridge is non-negotiable
-- Hard water areas (most of India): avoid washing machines with scale-sensitive motors
-- Summer peak: AC buying season March-June — heat performance matters more than energy rating
+  // Extract JSON
+  const jsonSection = sepIdx !== -1 ? content.slice(sepIdx + 15) : content
+  let rawArr = extractJsonArray(jsonSection)
 
-QUALITY BARS:
-- "rating" must reflect genuine user satisfaction after fake removal. 3.5-4.7 range only.
-- "platform_rating" = what Amazon/Flipkart actually show. Usually 0.2-0.5 higher.
-- "pros" must be SPECIFIC: not "good camera" but "50MP OIS stabilised — minimal blur in low light"
-- "cons" must be HONEST: the real main complaint from actual buyers
-- "reason" = 1 sentence WHY this beats alternatives for this specific query
-
-FORMAT:
-1. 2-3 sentences of plain text advice. Be specific. Mention key tradeoffs. No markdown.
-2. New line: ---PRODUCTS---
-3. JSON array of EXACTLY 3 products:
-[{"name":"Full Name","price":"₹XX,XXX","seller":"Amazon","rating":4.2,"platform_rating":4.6,"reviews":"18k","badge":"Best Pick","reason":"Why it wins for this query","pros":["Specific pro 1","Specific pro 2"],"cons":["Main real complaint"],"avoid_if":"Who should skip this"}]
-4. NEVER output <think> tags or **markdown**.`
-
-  const userMessage = `Question: ${question}
-${loc.label ? `Location: ${loc.label}` : ''}
-Current date: ${dateCtx}
-
-${serpContext
-  ? `Live data from Indian shopping platforms (use this as ground truth for availability and price):\n${serpContext}\n\nApply the scoring framework above to rank these results and add your own knowledge of current Indian market.`
-  : `No live data available. Use your Indian market knowledge. Apply the scoring framework. Prioritise products confirmed available in India as of ${dateCtx}.`
-}`
-
-  const res = await fetchWithRetry('https://api.sarvam.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'api-subscription-key': apiKey },
-    body: JSON.stringify({
-      model: 'sarvam-m',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage }
-      ],
-      max_tokens: 1800,
-      temperature: 0.3,
-    }),
-  })
-
-  if (res.status === 429) {
-    return { answer: 'Our AI is experiencing high demand. Please try again in a few seconds.', aiProducts: [], serpProducts: serpResult.products, relatedSearches: serpResult.relatedSearches }
+  // Fallback: search full content if nothing found in jsonSection
+  if (rawArr.length === 0) {
+    console.log('[Search] No JSON in section, trying full content')
+    rawArr = extractJsonArray(content)
   }
 
-  const raw = await res.text()
-  if (!res.ok) {
-    return { answer: `AI temporarily unavailable (${res.status}). Please try again.`, aiProducts: [], serpProducts: serpResult.products, relatedSearches: serpResult.relatedSearches }
-  }
+  console.log(`[Search] parsed ${rawArr.length} products`)
 
-  let data: { choices?: Array<{ message?: { content?: string } }> } = {}
-  try { data = JSON.parse(raw) } catch {}
+  let aiProducts: AiProduct[] = (rawArr as Record<string, unknown>[])
+    .filter(p => p && typeof p.name === 'string' && p.name.length > 2)
+    .slice(0, 3)
+    .map(sanitise)
 
-  const rawContent = data.choices?.[0]?.message?.content || ''
-
-  // ── ROBUST CONTENT CLEANING ──
-  // Step 1: Strip ALL <think>...</think> blocks (Sarvam model reasoning tokens)
-  // Use greedy removal in case of nested/malformed tags
-  let content = rawContent
-  // Remove think blocks — loop until none remain (handles nested)
-  let prev = ''
-  while (prev !== content) {
-    prev = content
-    content = content.replace(/<think>[\s\S]*?<\/think>/gi, '')
-  }
-  // Also strip any orphaned opening/closing think tags
-  content = content.replace(/<\/?think>/gi, '').trim()
-
-  // Step 2: Strip markdown bold/italic
-  content = content.replace(/\*\*(.*?)\*\*/g, '$1').replace(/\*(.*?)\*/g, '$1')
-
-  // Step 3: Find the JSON array — try multiple strategies
-  let answer = ''
-  let aiProducts: AiProduct[] = []
-
-  // Strategy A: Model used ---PRODUCTS--- separator (ideal)
-  const sepParts = content.split(/---PRODUCTS---/i)
-  if (sepParts.length >= 2) {
-    answer = sepParts[0].trim()
-    const jsonStr = sepParts.slice(1).join('')
-    const m = jsonStr.match(/\[[\s\S]*\]/)
-    if (m) {
-      try { aiProducts = JSON.parse(m[0]) } catch (e) { console.error('[Search] Sep parse failed:', e) }
-    }
-  }
-
-  // Strategy B: No separator — find JSON array anywhere in response
-  if (aiProducts.length === 0) {
-    const jsonMatch = content.match(/\[[\s\S]*?\{[\s\S]*?"name"[\s\S]*?\}[\s\S]*?\]/)
-    if (jsonMatch) {
-      try {
-        aiProducts = JSON.parse(jsonMatch[0])
-        // Answer is everything before the JSON
-        const jsonStart = content.indexOf(jsonMatch[0])
-        answer = content.slice(0, jsonStart).replace(/---PRODUCTS---/i, '').trim()
-      } catch (e) { console.error('[Search] Direct JSON parse failed:', e) }
-    }
-  }
-
-  // Strategy C: Try to find JSON that starts with [{
-  if (aiProducts.length === 0) {
-    const bracketIdx = content.indexOf('[{')
-    if (bracketIdx !== -1) {
-      const jsonCandidate = content.slice(bracketIdx)
-      // Find the matching closing bracket
-      let depth = 0, end = -1
-      for (let i = 0; i < jsonCandidate.length; i++) {
-        if (jsonCandidate[i] === '[') depth++
-        else if (jsonCandidate[i] === ']') { depth--; if (depth === 0) { end = i; break } }
-      }
-      if (end !== -1) {
-        try {
-          aiProducts = JSON.parse(jsonCandidate.slice(0, end + 1))
-          answer = content.slice(0, bracketIdx).replace(/---PRODUCTS---/i, '').trim()
-        } catch (e) { console.error('[Search] Bracket parse failed:', e) }
-      }
-    }
-  }
-
-  // If still no answer text, use full content minus JSON
-  if (!answer && content) {
-    answer = content.replace(/\[[\s\S]*\]/, '').replace(/---PRODUCTS---/i, '').trim().slice(0, 500)
-  }
-  if (!answer) answer = 'Here are the top options for your query.'
-
-  // Sanitise products
-  aiProducts = (Array.isArray(aiProducts) ? aiProducts : []).slice(0, 3).map((p: Record<string, unknown>) => ({
-    ...p,
-    name: String(p.name || 'Product'),
-    price: String(p.price || '—'),
-    seller: String(p.seller || 'Amazon'),
-    rating: Math.min(4.8, Math.max(3.5, Number(p.rating) || 4.0)),
-    platform_rating: Math.min(5.0, Math.max(3.8, Number(p.platform_rating) || Math.min(5.0, (Number(p.rating) || 4.0) + 0.35))),
-    reviews: String(p.reviews || ''),
-    badge: String(p.badge || 'Top Rated'),
-    reason: String(p.reason || ''),
-    pros: Array.isArray(p.pros) ? p.pros.slice(0, 2).map(String) : [],
-    cons: Array.isArray(p.cons) ? p.cons.slice(0, 1).map(String) : [],
-    avoid_if: String(p.avoid_if || ''),
-  }))
-
-  // ── GUARANTEE 3 CARDS ──
-  // If AI returned fewer than 3, pad from SERP results so the UI always shows 3 cards
+  // Fill from SERP if AI returned fewer than 3
   if (aiProducts.length < 3 && serpResult.products.length > 0) {
-    const usedNames = new Set(aiProducts.map(p => p.name.toLowerCase()))
-    const fallbackProducts = serpResult.products
-      .filter(sp => sp.title && sp.price && !usedNames.has(sp.title.toLowerCase()))
+    console.log(`[Search] filling ${3 - aiProducts.length} slots from SERP`)
+    const used = new Set(aiProducts.map(p => p.name.toLowerCase()))
+    const fill = serpResult.products
+      .filter(sp => sp.title && sp.price && !used.has(sp.title.toLowerCase()))
       .slice(0, 3 - aiProducts.length)
-      .map((sp, i) => ({
-        name: sp.title,
-        price: sp.price || '₹—',
-        seller: sp.source || 'Amazon',
+      .map((sp, i): AiProduct => ({
+        name: sp.title, price: sp.price || '—', seller: sp.source || 'Amazon',
         rating: sp.rating ? Math.min(4.8, Math.max(3.5, Number(sp.rating))) : 4.0,
         platform_rating: sp.rating ? Math.min(5.0, Number(sp.rating) + 0.3) : 4.3,
-        reviews: '',
-        badge: i === 0 && aiProducts.length === 0 ? 'Best Pick' : 'Top Rated',
-        reason: `Highly rated option available on ${sp.source || 'Amazon'} for this query.`,
-        pros: ['Available now at competitive price', 'Well-reviewed by Indian buyers'],
-        cons: ['Check detailed specs before purchasing'],
-        avoid_if: 'If you need specific features not listed here',
+        reviews: '', badge: ['Best Pick','Best Value','Budget Pick'][aiProducts.length + i] || 'Top Rated',
+        reason: `Top result on ${sp.source || 'Amazon'} for this query.`,
+        pros: ['Available at competitive price', 'Well-reviewed by Indian buyers'],
+        cons: ['Compare full specs before buying'],
+        avoid_if: 'If you need AI-detailed analysis',
       }))
-    aiProducts = [...aiProducts, ...fallbackProducts]
+    aiProducts = [...aiProducts, ...fill]
   }
 
-  // If still under 3 (rare — both AI and SERP failed), use generic placeholders
-  while (aiProducts.length < 3) {
-    const rank = aiProducts.length + 1
-    aiProducts.push({
-      name: `Option ${rank} — Search "${question}"`,
-      price: '—',
-      seller: 'Amazon',
-      rating: 4.0,
-      platform_rating: 4.3,
-      reviews: '',
-      badge: rank === 1 ? 'Best Pick' : rank === 2 ? 'Runner Up' : 'Third Pick',
-      reason: 'Search directly on Amazon for the latest options.',
-      pros: ['Check Amazon for current pricing', 'Compare specs before buying'],
-      cons: ['Live data unavailable right now'],
-      avoid_if: 'If you need immediate AI recommendation — try again',
-    })
+  const result: SearchResult = {
+    answer,
+    aiProducts: aiProducts.slice(0, 3),
+    serpProducts: serpResult.products,
+    relatedSearches: serpResult.relatedSearches,
   }
-
-  // Always exactly 3
-  aiProducts = aiProducts.slice(0, 3)
-
-  const result: SearchResult = { answer, aiProducts, serpProducts: serpResult.products, relatedSearches: serpResult.relatedSearches }
   cache.set(cacheKey, { result, ts: Date.now() })
   return result
 }
