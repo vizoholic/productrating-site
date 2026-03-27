@@ -174,7 +174,7 @@ function sanitise(p: Record<string, unknown>, i: number): AiProduct {
   return {
     name:            String(p.name||'').trim(),
     price:           String(p.price||'—'),
-    seller:          String(p.seller||'Amazon'),
+    seller:          normaliseSeller(String(p.seller||'Amazon')),
     rating:          r,
     platform_rating: Math.min(5.0, Math.max(r+0.15, Number(p.platform_rating)||r+0.3)),
     reviews:         String(p.reviews||''),
@@ -188,6 +188,22 @@ function sanitise(p: Record<string, unknown>, i: number): AiProduct {
     best_price:      String(p.best_price||''),
     best_price_platform: String(p.best_price_platform||''),
   }
+}
+
+// Ensure seller field is always a known marketplace, never a brand site
+function normaliseSeller(seller: string): string {
+  const s = seller.toLowerCase()
+  // Known marketplaces — pass through with clean name
+  if (s.includes('amazon'))    return 'Amazon'
+  if (s.includes('flipkart'))  return 'Flipkart'
+  if (s.includes('croma'))     return 'Croma'
+  if (s.includes('reliance'))  return 'Reliance Digital'
+  if (s.includes('vijay'))     return 'Vijay Sales'
+  if (s.includes('tata'))      return 'Tata Cliq'
+  if (s.includes('meesho'))    return 'Meesho'
+  if (s.includes('jio'))       return 'JioMart'
+  // Everything else is a brand/manufacturer site → default to Amazon
+  return 'Amazon'
 }
 
 // ─────────────────────────────────────────────
@@ -258,15 +274,27 @@ function enrichWithSerpPrices(
   if (!serpProducts.length) return aiProducts
 
   return aiProducts.map(ai => {
-    // If AI already gave us platform_prices, fill missing URLs and return
+    // If AI gave us platform_prices — filter brand sites, keep only marketplaces
     if (ai.platform_prices && ai.platform_prices.length > 0) {
-      const enriched = ai.platform_prices.map(pp => ({
-        ...pp,
-        url: pp.url && pp.url.startsWith('http')
-          ? pp.url
-          : buildDirectUrl(pp.platform, ai.name),
-      }))
-      // Sort by price ascending (Skyscanner-style — lowest first)
+      const enriched = ai.platform_prices
+        .filter(pp => isMarketplace(pp.platform))  // Drop brand sites completely
+        .map(pp => ({
+          ...pp,
+          platform: platformDisplayName(pp.platform),  // Normalise name
+          url: pp.url && pp.url.startsWith('http') && isMarketplace(pp.platform)
+            ? pp.url
+            : buildDirectUrl(pp.platform, ai.name),   // Replace brand URLs with marketplace search
+        }))
+
+      // If AI's platform_prices were all brand sites (enriched is empty), use marketplace fallbacks
+      if (enriched.length === 0) {
+        const fallbacks: PlatformPrice[] = [
+          { platform:'Amazon',  price:ai.price, url:buildDirectUrl('amazon', ai.name),   availability:'in_stock' },
+          { platform:'Flipkart',price:'—',      url:buildDirectUrl('flipkart', ai.name), availability:'in_stock' },
+        ]
+        return { ...ai, seller:'Amazon', platform_prices:fallbacks, best_price:ai.price, best_price_platform:'Amazon' }
+      }
+
       enriched.sort((a, b) => {
         const pa = parseInt(a.price.replace(/[^\d]/g, '')) || 999999
         const pb = parseInt(b.price.replace(/[^\d]/g, '')) || 999999
@@ -294,18 +322,19 @@ function enrichWithSerpPrices(
     })
 
     if (matched.length === 0) {
-      // No SERP match — return AI data with direct links
-      const platforms = [ai.seller, 'Amazon', 'Flipkart', 'Croma'].filter((v,i,a)=>a.indexOf(v)===i).slice(0,3)
+      // No SERP marketplace match — always use known marketplaces, NEVER brand sites
+      // Even if AI said "Xiaomi Store" or "Samsung India", we redirect to Amazon/Flipkart
+      const marketplaceFallbacks: PlatformPrice[] = [
+        { platform:'Amazon',  price:ai.price, url:buildDirectUrl('amazon', ai.name),   availability:'in_stock' },
+        { platform:'Flipkart',price:'—',      url:buildDirectUrl('flipkart', ai.name), availability:'in_stock' },
+        { platform:'Croma',   price:'—',      url:buildDirectUrl('croma', ai.name),    availability:'in_stock' },
+      ]
       return {
         ...ai,
-        platform_prices: platforms.map(p => ({
-          platform: p,
-          price: p === ai.seller ? ai.price : '—',
-          url: buildDirectUrl(p, ai.name),
-          availability: 'in_stock' as const,
-        })),
+        seller: 'Amazon',  // Override any brand site seller with a real marketplace
+        platform_prices: marketplaceFallbacks,
         best_price: ai.price,
-        best_price_platform: ai.seller,
+        best_price_platform: 'Amazon',
       }
     }
 
@@ -350,7 +379,7 @@ function enrichWithSerpPrices(
     // If we have no SERP matches for a platform, ensure at least the AI seller is included
     const hasSeller = platform_prices.some(p => p.platform.toLowerCase().includes(ai.seller.toLowerCase()))
     if (!hasSeller) {
-      platform_prices.unshift({ platform:ai.seller, price:ai.price, url:buildDirectUrl(ai.seller,ai.name), availability:'in_stock' })
+      platform_prices.unshift({ platform:'Amazon', price:ai.price, url:buildDirectUrl('amazon',ai.name), availability:'in_stock' })
       platform_prices = platform_prices.slice(0,4)
       platform_prices.sort((a,b)=>{
         const pa=parseInt(a.price.replace(/[^\d]/g,''))||999999
