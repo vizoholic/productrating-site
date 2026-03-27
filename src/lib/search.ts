@@ -3,12 +3,22 @@
 
 import { searchGoogleShopping, buildProductContext, type SerpSearchResult } from './serpapi'
 
+export type PlatformPrice = {
+  platform: string   // "Amazon" | "Flipkart" | "Croma" | "Reliance Digital" etc
+  price: string      // "₹38,990"
+  url: string        // direct buy link
+  availability: 'in_stock' | 'limited' | 'out_of_stock'
+}
+
 export type AiProduct = {
   name: string; price: string; seller: string
   rating: number; platform_rating: number
   reviews: string; badge: string; reason: string
   pros: string[]; cons: string[]; avoid_if: string
-  score?: number  // PR Algorithm score /100 for transparency
+  score?: number
+  platform_prices?: PlatformPrice[]   // multi-platform price comparison
+  best_price?: string                 // lowest price across all platforms
+  best_price_platform?: string        // platform with lowest price
 }
 
 export type SearchResult = {
@@ -174,12 +184,148 @@ function sanitise(p: Record<string, unknown>, i: number): AiProduct {
     cons:            Array.isArray(p.cons)?p.cons.slice(0,1).map(String):[],
     avoid_if:        String(p.avoid_if||''),
     score:           Number(p.score||0),
+    platform_prices: Array.isArray(p.platform_prices) ? p.platform_prices : [],
+    best_price:      String(p.best_price||''),
+    best_price_platform: String(p.best_price_platform||''),
   }
 }
 
 // ─────────────────────────────────────────────
 // OPENAI — JSON mode with full scoring prompt
 // ─────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// ENRICH platform_prices FROM LIVE SERP DATA
+// Skyscanner-style: show each platform's price + direct buy link
+// ─────────────────────────────────────────────
+function buildDirectUrl(platform: string, productName: string): string {
+  const q = encodeURIComponent(productName)
+  const p = platform.toLowerCase()
+  if (p.includes('amazon'))           return `https://www.amazon.in/s?k=${q}`
+  if (p.includes('flipkart'))         return `https://www.flipkart.com/search?q=${q}`
+  if (p.includes('croma'))            return `https://www.croma.com/searchB?q=${q}`
+  if (p.includes('reliance'))         return `https://www.reliancedigital.in/search?q=${q}`
+  if (p.includes('vijay'))            return `https://www.vijaysales.com/search/${q}`
+  if (p.includes('tata'))             return `https://www.tatacliq.com/search/?text=${q}`
+  if (p.includes('meesho'))           return `https://www.meesho.com/search?q=${q}`
+  if (p.includes('jio'))              return `https://www.jiomart.com/search/${q}`
+  return `https://www.amazon.in/s?k=${q}`
+}
+
+type SerpProd = SerpSearchResult['products'][0]
+
+function enrichWithSerpPrices(
+  aiProducts: AiProduct[],
+  serpProducts: SerpSearchResult['products']
+): AiProduct[] {
+  if (!serpProducts.length) return aiProducts
+
+  return aiProducts.map(ai => {
+    // If AI already gave us platform_prices, fill missing URLs and return
+    if (ai.platform_prices && ai.platform_prices.length > 0) {
+      const enriched = ai.platform_prices.map(pp => ({
+        ...pp,
+        url: pp.url && pp.url.startsWith('http')
+          ? pp.url
+          : buildDirectUrl(pp.platform, ai.name),
+      }))
+      // Sort by price ascending (Skyscanner-style — lowest first)
+      enriched.sort((a, b) => {
+        const pa = parseInt(a.price.replace(/[^\d]/g, '')) || 999999
+        const pb = parseInt(b.price.replace(/[^\d]/g, '')) || 999999
+        return pa - pb
+      })
+      const best = enriched[0]
+      return {
+        ...ai,
+        platform_prices: enriched,
+        best_price: best?.price || ai.price,
+        best_price_platform: best?.platform || ai.seller,
+      }
+    }
+
+    // Build platform_prices from SERP results by fuzzy-matching product name
+    const aiName = ai.name.toLowerCase()
+    // Extract key words (brand + model number)
+    const keywords = aiName.split(/\s+/).filter(w => w.length > 2).slice(0, 5)
+
+    const matched = serpProducts.filter(sp => {
+      if (!sp.title || !sp.price) return false
+      const t = sp.title.toLowerCase()
+      const matchCount = keywords.filter(kw => t.includes(kw)).length
+      return matchCount >= Math.min(3, keywords.length - 1) // at least 3 keyword matches
+    })
+
+    if (matched.length === 0) {
+      // No SERP match — return AI data with direct links
+      const platforms = [ai.seller, 'Amazon', 'Flipkart', 'Croma'].filter((v,i,a)=>a.indexOf(v)===i).slice(0,3)
+      return {
+        ...ai,
+        platform_prices: platforms.map(p => ({
+          platform: p,
+          price: p === ai.seller ? ai.price : '—',
+          url: buildDirectUrl(p, ai.name),
+          availability: 'in_stock' as const,
+        })),
+        best_price: ai.price,
+        best_price_platform: ai.seller,
+      }
+    }
+
+    // Group by platform, keep lowest price per platform
+    const byPlatform = new Map<string, SerpProd>()
+    for (const sp of matched) {
+      const key = sp.source.toLowerCase()
+      const existing = byPlatform.get(key)
+      if (!existing) {
+        byPlatform.set(key, sp)
+      } else {
+        const ep = parseInt(existing.price?.replace(/[^\d]/g,'') || '999999')
+        const sp2 = parseInt(sp.price?.replace(/[^\d]/g,'') || '999999')
+        if (sp2 < ep) byPlatform.set(key, sp)
+      }
+    }
+
+    let platform_prices: PlatformPrice[] = Array.from(byPlatform.values()).map(sp => ({
+      platform: sp.source,
+      price: sp.price || '—',
+      url: sp.link || buildDirectUrl(sp.source, ai.name),
+      availability: 'in_stock' as const,
+    }))
+
+    // Sort lowest price first (Skyscanner style)
+    platform_prices.sort((a,b) => {
+      const pa = parseInt(a.price.replace(/[^\d]/g,'')) || 999999
+      const pb = parseInt(b.price.replace(/[^\d]/g,'')) || 999999
+      return pa - pb
+    })
+
+    // Cap at 4 platforms
+    platform_prices = platform_prices.slice(0, 4)
+
+    // If we have no SERP matches for a platform, ensure at least the AI seller is included
+    const hasSeller = platform_prices.some(p => p.platform.toLowerCase().includes(ai.seller.toLowerCase()))
+    if (!hasSeller) {
+      platform_prices.unshift({ platform:ai.seller, price:ai.price, url:buildDirectUrl(ai.seller,ai.name), availability:'in_stock' })
+      platform_prices = platform_prices.slice(0,4)
+      platform_prices.sort((a,b)=>{
+        const pa=parseInt(a.price.replace(/[^\d]/g,''))||999999
+        const pb=parseInt(b.price.replace(/[^\d]/g,''))||999999
+        return pa-pb
+      })
+    }
+
+    const best = platform_prices[0]
+    return {
+      ...ai,
+      platform_prices,
+      price: best?.price || ai.price,           // update displayed price to lowest found
+      seller: best?.platform || ai.seller,       // update seller to cheapest
+      best_price: best?.price || ai.price,
+      best_price_platform: best?.platform || ai.seller,
+    }
+  })
+}
+
 async function callOpenAI(
   question: string, serpContext: string, loc: string, lang: string,
   monthYear: string, currentYear: number, cat: Cat,
@@ -260,6 +406,8 @@ AGGREGATE total reviews from ALL Indian platforms:
   Tata Cliq       × 0.90 weight
   Meesho / JioMart × 0.60 weight (high fake risk)
 
+Report combined total as: "48k" or "1.2L" (lakh) — NEVER mention platform names in the reviews field. Just the number.
+
 Combined weighted review count:
   50,000+ → 20 pts
   25,000–49,999 → 16 pts
@@ -332,6 +480,13 @@ Schema:
       "badge": "Best Pick",
       "score": 84,
       "reason": "Why this ranks #1 for this exact query in ${loc || 'India'} — mention algorithm factors",
+      "platform_prices": [
+        {"platform":"Amazon","price":"₹38,990","url":"https://www.amazon.in/s?k=LG+1.5+Ton+5+Star+AI+Dual+Inverter+AC","availability":"in_stock"},
+        {"platform":"Flipkart","price":"₹36,490","url":"https://www.flipkart.com/search?q=LG+1.5+Ton+5+Star+AI+Dual+Inverter+AC","availability":"in_stock"},
+        {"platform":"Croma","price":"₹39,990","url":"https://www.croma.com/searchB?q=LG+AC","availability":"in_stock"}
+      ],
+      "best_price": "₹36,490",
+      "best_price_platform": "Flipkart",
       "pros": ["Specific factual pro 1 relevant to ${loc || 'India'}", "Specific factual pro 2"],
       "cons": ["Main real complaint from actual buyer reviews"],
       "avoid_if": "Specific type of buyer who should not choose this"
@@ -483,6 +638,9 @@ export async function runSearch(
       }))
     aiProducts=[...aiProducts,...fill]
   }
+
+  // Enrich with Skyscanner-style cross-platform prices from live SERP data
+  aiProducts = enrichWithSerpPrices(aiProducts, serpResult.products)
 
   const result: SearchResult = {
     answer: answer||'Here are the top electronics options for India right now.',
