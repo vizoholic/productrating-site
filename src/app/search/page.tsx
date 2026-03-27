@@ -9,17 +9,19 @@ type AiProduct = { name:string; price:string; seller:string; rating:number; plat
 type SerpProduct = { title:string; price:string; rating:number|null; source:string; link:string; thumbnail:string; delivery:string }
 
 // Normalise platform display — never show brand/manufacturer sites
+// Known Indian marketplaces only — any other name (brand stores, manufacturer sites) → 'Amazon'
+const KNOWN_MARKETPLACES: Record<string, string> = {
+  'amazon': 'Amazon', 'flipkart': 'Flipkart', 'croma': 'Croma',
+  'reliance': 'Reliance Digital', 'vijay': 'Vijay Sales', 'tata': 'Tata Cliq',
+  'meesho': 'Meesho', 'jio': 'JioMart', 'snapdeal': 'Snapdeal',
+}
 function normalisePlatform(platform: string): string {
   const p = platform.toLowerCase()
-  if (p.includes('amazon')) return 'Amazon'
-  if (p.includes('flipkart')) return 'Flipkart'
-  if (p.includes('croma')) return 'Croma'
-  if (p.includes('reliance')) return 'Reliance Digital'
-  if (p.includes('vijay')) return 'Vijay Sales'
-  if (p.includes('tata')) return 'Tata Cliq'
-  if (p.includes('meesho')) return 'Meesho'
-  if (p.includes('jio')) return 'JioMart'
-  return 'Amazon' // fallback brand sites → Amazon
+  for (const [key, display] of Object.entries(KNOWN_MARKETPLACES)) {
+    if (p.includes(key)) return display
+  }
+  // Brand/manufacturer sites detected — show as Amazon
+  return 'Amazon'
 }
 function getDirectUrl(seller:string,name:string):string{
   const q=encodeURIComponent(name),s=(seller||'').toLowerCase().trim()
@@ -222,7 +224,7 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
             onMouseEnter={e=>{e.currentTarget.style.background=isTop?'#4A3FBF':'var(--bg-2)'}}
             onMouseLeave={e=>{e.currentTarget.style.background=isTop?'var(--accent)':'var(--bg-1)'}}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-            Buy on {p.seller||'Amazon'}
+            Find Best Price on Amazon
           </a>
         )}
       </div>
