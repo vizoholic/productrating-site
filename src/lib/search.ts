@@ -197,18 +197,56 @@ function sanitise(p: Record<string, unknown>, i: number): AiProduct {
 // ENRICH platform_prices FROM LIVE SERP DATA
 // Skyscanner-style: show each platform's price + direct buy link
 // ─────────────────────────────────────────────
+// Known Indian marketplaces — direct product search URLs
+const MARKETPLACE_MAP: Record<string, (q: string) => string> = {
+  'amazon':          q => `https://www.amazon.in/s?k=${q}`,
+  'flipkart':        q => `https://www.flipkart.com/search?q=${q}`,
+  'croma':           q => `https://www.croma.com/searchB?q=${q}`,
+  'reliance digital':q => `https://www.reliancedigital.in/search?q=${q}`,
+  'vijay sales':     q => `https://www.vijaysales.com/search/${q}`,
+  'vijaysales':      q => `https://www.vijaysales.com/search/${q}`,
+  'tata cliq':       q => `https://www.tatacliq.com/search/?text=${q}`,
+  'tatacliq':        q => `https://www.tatacliq.com/search/?text=${q}`,
+  'meesho':          q => `https://www.meesho.com/search?q=${q}`,
+  'jiomart':         q => `https://www.jiomart.com/search/${q}`,
+  'nykaa':           q => `https://www.nykaa.com/search/result/?q=${q}`,
+  'snapdeal':        q => `https://www.snapdeal.com/search?keyword=${q}`,
+}
+
+// Known brand/manufacturer sites — NOT marketplaces, redirect to Amazon search instead
+const BRAND_SITES = [
+  'xiaomi','mi.com','realme','oneplus','samsung india','apple india',
+  'nokia','motorola','lenovo','hp india','dell india','asus','lg india',
+  'sony india','bosch','voltas','daikin','hitachi','whirlpool','godrej',
+  'boat-lifestyle','boat','noise','official','store','brand'
+]
+
+function isMarketplace(source: string): boolean {
+  const s = source.toLowerCase()
+  return Object.keys(MARKETPLACE_MAP).some(k => s.includes(k))
+}
+
 function buildDirectUrl(platform: string, productName: string): string {
   const q = encodeURIComponent(productName)
   const p = platform.toLowerCase()
-  if (p.includes('amazon'))           return `https://www.amazon.in/s?k=${q}`
-  if (p.includes('flipkart'))         return `https://www.flipkart.com/search?q=${q}`
-  if (p.includes('croma'))            return `https://www.croma.com/searchB?q=${q}`
-  if (p.includes('reliance'))         return `https://www.reliancedigital.in/search?q=${q}`
-  if (p.includes('vijay'))            return `https://www.vijaysales.com/search/${q}`
-  if (p.includes('tata'))             return `https://www.tatacliq.com/search/?text=${q}`
-  if (p.includes('meesho'))           return `https://www.meesho.com/search?q=${q}`
-  if (p.includes('jio'))              return `https://www.jiomart.com/search/${q}`
+  for (const [key, fn] of Object.entries(MARKETPLACE_MAP)) {
+    if (p.includes(key)) return fn(q)
+  }
+  // It's a brand site — send to Amazon search instead
   return `https://www.amazon.in/s?k=${q}`
+}
+
+function platformDisplayName(source: string): string {
+  const s = source.toLowerCase()
+  if (s.includes('amazon'))    return 'Amazon'
+  if (s.includes('flipkart'))  return 'Flipkart'
+  if (s.includes('croma'))     return 'Croma'
+  if (s.includes('reliance'))  return 'Reliance Digital'
+  if (s.includes('vijay'))     return 'Vijay Sales'
+  if (s.includes('tata'))      return 'Tata Cliq'
+  if (s.includes('meesho'))    return 'Meesho'
+  if (s.includes('jio'))       return 'JioMart'
+  return source  // fallback
 }
 
 type SerpProd = SerpSearchResult['products'][0]
@@ -271,10 +309,15 @@ function enrichWithSerpPrices(
       }
     }
 
-    // Group by platform, keep lowest price per platform
+    // Group by MARKETPLACE platform only — skip brand/manufacturer sites
     const byPlatform = new Map<string, SerpProd>()
     for (const sp of matched) {
-      const key = sp.source.toLowerCase()
+      // Skip brand sites (Xiaomi India, Realme, Samsung Official etc.)
+      if (!isMarketplace(sp.source)) {
+        console.log(`[Prices] skipping brand site: ${sp.source}`)
+        continue
+      }
+      const key = platformDisplayName(sp.source)  // normalise key
       const existing = byPlatform.get(key)
       if (!existing) {
         byPlatform.set(key, sp)
@@ -285,10 +328,12 @@ function enrichWithSerpPrices(
       }
     }
 
-    let platform_prices: PlatformPrice[] = Array.from(byPlatform.values()).map(sp => ({
-      platform: sp.source,
+    let platform_prices: PlatformPrice[] = Array.from(byPlatform.entries()).map(([name, sp]) => ({
+      platform: name,  // use normalised display name
       price: sp.price || '—',
-      url: sp.link || buildDirectUrl(sp.source, ai.name),
+      url: sp.link && sp.link.startsWith('http') && isMarketplace(sp.source)
+        ? sp.link
+        : buildDirectUrl(name, ai.name),  // always link to marketplace, never brand site
       availability: 'in_stock' as const,
     }))
 
@@ -395,6 +440,94 @@ EVERGREEN EXCEPTION (score up to 12 pts recency):
   ✓ Specifications still genuinely competitive vs ${yr} alternatives at its price
   Examples that qualify: Redmi Note 13, Samsung Galaxy A34 (large review base, active stock)
   Examples to SKIP: Samsung M33 (M35 replaced it), Narzo 60x (80 series out), Redmi Note 12
+
+SUCCESSOR UPGRADE RULE (CRITICAL — prevents stale outdated recommendations):
+  When a candidate product from 2022-2023 has high reviews but a NEWER model in the same
+  series has launched — ALWAYS recommend the newer successor, NOT the old one.
+
+  Algorithm:
+    1. Identify the series (e.g. "Redmi Note", "Samsung Galaxy A", "Narzo")
+    2. Check: has a newer model in this series launched in ${yr} or ${yr-1}?
+    3. If YES → recommend the newer model instead
+    4. In "reason" mention: "Upgraded from the popular [older model] (Xk reviews)"
+    5. Award +5 POPULARITY INHERITANCE BONUS to successor if older sibling had 30k+ reviews
+
+  Required upgrades for ${yr} — ALL ELECTRONICS CATEGORIES:
+
+  SMARTPHONES:
+    Redmi Note 12/13 → Redmi Note 14/15 5G
+    Samsung Galaxy M33/M34 → Samsung Galaxy M35/M55 5G
+    Narzo 60x/60 → Narzo 80/80 Pro 5G
+    iQOO Z7/Z7 Pro → iQOO Z9/Z9x/Z10
+    OnePlus Nord CE 3 → Nord CE 4/4 Lite
+    Redmi 12/12C → Redmi 14/15 5G
+    Galaxy A34/A14 → Galaxy A35/A36 5G
+    Moto G73/G84 → Moto G96/G85 5G
+    POCO M5/M6 → POCO M7/X7
+    Realme 11/11x → Realme 13/13x 5G
+    Vivo T2/T2x → Vivo T3/T3x 5G
+    CMF Phone 1 → CMF Phone 2 Pro
+
+  LAPTOPS:
+    Intel 12th gen laptops → Intel Core Ultra (Meteor Lake/Arrow Lake) or AMD Ryzen 8000 series
+    Lenovo IdeaPad 3 (older) → Lenovo IdeaPad Slim 3/5 (2024/2025 gen)
+    HP Pavilion 15 (older i5-12th) → HP Pavilion 15 (Core Ultra 5/7 2024)
+    Dell Inspiron 15 (older) → Dell Inspiron 15 (2024 gen Core Ultra)
+    ASUS VivoBook 15 (older) → ASUS VivoBook 16X (2024 gen)
+    HP Victus 15 (RTX 3050) → HP Victus 15 (RTX 4060 2024)
+    Acer Aspire 7 (older) → Acer Aspire 7/Swift (2024 gen)
+
+  TVs:
+    Samsung Crystal 4K (2022) → Samsung Crystal 4K (2024 BU/CU series)
+    LG NanoCell 2022 → LG NanoCell/QNED 2024
+    Sony Bravia X74K → Sony Bravia X74L/X75L (2024)
+    Mi/Xiaomi TV 5X → Xiaomi TV A2/X Pro (2024)
+    OnePlus TV Y1S → OnePlus TV 43/50/55 Y3 (2024)
+    Realme SLED/4K → Realme Smart TV 4K 2024
+
+  AIR CONDITIONERS:
+    LG Dual Inverter (2021/2022 models) → LG DUAL Inverter (2024 gen with AI+)
+    Daikin FTKF (2022) → Daikin FTKP/FTKG (2024)
+    Voltas 183V (older) → Voltas Inverter (2024 5-star series)
+    Samsung WindFree (2022) → Samsung WindFree (2024 AI series)
+    Hitachi Kaze (older) → Hitachi Frost Wash (2024)
+    Blue Star (older 3-star) → Blue Star 5-star inverter (2024)
+
+  REFRIGERATORS:
+    Samsung 3-door (2022 RT models) → Samsung Frost Free (2024 RT/RF series)
+    LG Single/Double door (2021) → LG (2024 gen with Wi-Fi/AI)
+    Whirlpool Intellifresh (older) → Whirlpool Intellifresh (2024 gen)
+    Haier (2022 models) → Haier (2024 HRB series)
+
+  WASHING MACHINES:
+    Samsung 6.5kg front load (2022) → Samsung 7kg/8kg (2024 AI wash series)
+    LG FHM (older) → LG FHP/AI Direct Drive (2024)
+    IFB 6kg (older Senator) → IFB 7kg/8kg (2024 Executive/Senator Plus)
+    Bosch 6kg (2022) → Bosch 7kg/8kg (2024 Series 4/6)
+
+  AUDIO (Earbuds/Headphones):
+    Sony WF-1000XM4 → Sony WF-1000XM5
+    Samsung Galaxy Buds 2 → Galaxy Buds 2 Pro / Galaxy Buds 3
+    Nothing Ear 1/2 → Nothing Ear (a)/Ear 2 (2024)
+    CMF Buds/Buds Pro → CMF Buds Pro 2 (2024)
+    OnePlus Buds 2 → OnePlus Buds 3/Pro 2
+    boat Airdopes 141 (older) → boat Airdopes 141 (2024 gen v2)
+    Realme Buds Air 3 → Realme Buds Air 5/6
+
+  SMARTWATCHES:
+    Samsung Galaxy Watch 4/5 → Galaxy Watch 6/7/FE
+    Nothing Watch 1 → Nothing Watch Pro (2024)
+    CMF Watch Pro → CMF Watch Pro 2 (2024)
+    Amazfit GTR 3/GTS 3 → Amazfit GTR 4/GTR Mini (2024)
+    Noise ColorFit Pro 4 → Noise ColorFit Caliber/Pro 5 (2024)
+    boAt Wave (older) → boAt Wave Sigma/Ripple (2024)
+
+  GENERAL RULE FOR ALL CATEGORIES:
+    Any product with "2022" or "2023" model year where brand has released 2024/2025 version → upgrade
+    Key signal: model number increment (X → X+1), gen indicator, or year in model name
+
+  NEVER recommend a product when its direct successor exists at the same price bracket.
+  If the newer model has fewer reviews, mention this: "New model with fewer reviews but better specs"
 
 ─── FACTOR 3: CROSS-PLATFORM REVIEW VOLUME (0–20 pts) ──
 AGGREGATE total reviews from ALL Indian platforms:
