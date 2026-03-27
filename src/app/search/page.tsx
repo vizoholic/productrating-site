@@ -208,7 +208,7 @@ function SearchResults(){
   const doSearch=async(q:string)=>{
     if(!q.trim())return
     setLoading(true);setCalled(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([])
-    try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();setAnswer(d.answer||'');setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
+    try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();if(d.isOutOfScope){setAnswer('__OUT_OF_SCOPE__');setAiProducts([]);setSerpProducts([]);setRelated([]);setLoading(false);return;}setAnswer(d.answer||'');setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
     catch{setAnswer('Something went wrong. Please try again.')}finally{setLoading(false)}
   }
   if(query&&!called&&!loading){doSearch(query);setCalled(true)}
@@ -380,13 +380,33 @@ function SearchResults(){
         </div>
       )}
 
+      {!loading&&answer==='__OUT_OF_SCOPE__'&&(
+        <div style={{textAlign:'center',padding:'72px 20px',maxWidth:520,margin:'0 auto'}}>
+          <div style={{width:64,height:64,background:'var(--gold-bg)',borderRadius:18,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 20px',border:'1.5px solid rgba(160,120,42,0.2)'}}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="1.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <h3 style={{fontSize:20,fontWeight:700,color:'var(--ink)',marginBottom:10,letterSpacing:'-0.4px'}}>Electronics only — for now</h3>
+          <p style={{fontSize:15,color:'var(--ink-3)',lineHeight:1.75,marginBottom:24,fontWeight:300}}>ProductRating.in currently specialises in electronics — phones, laptops, TVs, ACs, appliances, audio, and more. We're expanding to other categories soon.</p>
+          <div style={{display:'flex',flexWrap:'wrap',gap:8,justifyContent:'center'}}>
+            {['Best phone under ₹20,000','Best laptop for students','Best AC for Chennai','Best TWS earbuds','Best 4K TV under ₹50,000'].map(ex=>(
+              <button key={ex} onClick={()=>submit(ex)}
+                style={{padding:'8px 16px',borderRadius:100,fontSize:13,fontWeight:400,background:'var(--bg-2)',border:'1.5px solid var(--border-hi)',color:'var(--ink-2)',cursor:'pointer',transition:'all 0.25s',letterSpacing:'0.01em'}}
+                onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor='var(--accent)';(e.currentTarget as HTMLButtonElement).style.color='var(--accent)'}}
+                onMouseLeave={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor='var(--border-hi)';(e.currentTarget as HTMLButtonElement).style.color='var(--ink-2)'}}>
+                {ex}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {!loading&&!answer&&!called&&(
         <div style={{textAlign:'center',padding:'96px 0'}}>
           <div style={{width:56,height:56,background:'var(--accent-bg)',borderRadius:16,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px'}}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
           </div>
-          <p style={{fontSize:18,fontWeight:600,color:'var(--ink-3)',marginBottom:8,letterSpacing:'-0.3px'}}>Ask anything about any product</p>
-          <p style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase'}}>Type above or tap the mic · 22 Indian languages</p>
+          <p style={{fontSize:18,fontWeight:600,color:'var(--ink-3)',marginBottom:8,letterSpacing:'-0.3px'}}>Ask anything about electronics</p>
+          <p style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase'}}>Phones · Laptops · TVs · ACs · Appliances · Audio</p>
         </div>
       )}
 
