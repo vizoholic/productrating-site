@@ -4,10 +4,23 @@ import { useState, Suspense, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 
-type PlatformPrice = { platform:string; price:string; url:string; availability:string }
+type PlatformPrice = { platform:string; price:string; url:string; availability:string; isBrand?:boolean }
 type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; pros:string[]; cons:string[]; avoid_if:string; score?:number; platform_prices?:PlatformPrice[]; best_price?:string; best_price_platform?:string }
 type SerpProduct = { title:string; price:string; rating:number|null; source:string; link:string; thumbnail:string; delivery:string }
 
+// Normalise platform display — never show brand/manufacturer sites
+function normalisePlatform(platform: string): string {
+  const p = platform.toLowerCase()
+  if (p.includes('amazon')) return 'Amazon'
+  if (p.includes('flipkart')) return 'Flipkart'
+  if (p.includes('croma')) return 'Croma'
+  if (p.includes('reliance')) return 'Reliance Digital'
+  if (p.includes('vijay')) return 'Vijay Sales'
+  if (p.includes('tata')) return 'Tata Cliq'
+  if (p.includes('meesho')) return 'Meesho'
+  if (p.includes('jio')) return 'JioMart'
+  return 'Amazon' // fallback brand sites → Amazon
+}
 function getDirectUrl(seller:string,name:string):string{
   const q=encodeURIComponent(name),s=(seller||'').toLowerCase().trim()
   const map:[string[],(q:string)=>string][]=[
@@ -190,7 +203,7 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
                   onMouseLeave={e=>(e.currentTarget.style.background=isLowest?'rgba(22,163,74,0.05)':'var(--bg-1)')}>
                   <div style={{display:'flex',alignItems:'center',gap:8}}>
                     {isLowest && <svg width="8" height="8" viewBox="0 0 24 24" fill="var(--green)"><circle cx="12" cy="12" r="10"/></svg>}
-                    <span style={{fontSize:13,fontWeight:isLowest?600:400,color:isLowest?'var(--ink)':'var(--ink-2)',letterSpacing:'0.01em'}}>{pp.platform}</span>
+                    <span style={{fontSize:13,fontWeight:isLowest?600:400,color:isLowest?'var(--ink)':'var(--ink-2)',letterSpacing:'0.01em'}}>{normalisePlatform(pp.platform)}</span>
                     {isLowest && <span style={{fontSize:9,color:'var(--green)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',background:'rgba(22,163,74,0.1)',padding:'2px 6px',borderRadius:4}}>LOWEST</span>}
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:8}}>
