@@ -396,7 +396,9 @@ function getLocation(city: string, state: string): string {
 }
 
 function selectModel(q: string): string {
-  return /compare|versus|\bvs\b|difference|which is better|should i buy|worth it|best for me/i.test(q)
+  // gpt-5.3-chat-latest: fast, no chain-of-thought leak, ideal for product queries
+  // gpt-5.4: deep reasoning, but outputs CoT into answer — only for explicit comparisons
+  return /\bcompare\b|\bvs\b|difference between.*and/i.test(q)
     ? 'gpt-5.4' : 'gpt-5.3-chat-latest'
 }
 
@@ -531,6 +533,12 @@ PRODUCTRATING ALGORITHM v4.0 — ${ALGORITHM_VERSION}
 Target: Find the 3 BEST electronics products for this exact query
 ══════════════════════════════════════════════════════════════════
 
+⚠️  CRITICAL OUTPUT RULES:
+1. The "answer" field must be 2-3 sentences of DIRECT BUYING ADVICE — no thinking, no methodology explanation
+2. Do NOT start answer with "Okay", "Let me", "I need to", "The user wants", "First I will" or any reasoning language
+3. The answer should read like a confident expert recommendation, e.g.: "For under ₹20,000, the iQOO Z9x leads on performance while Redmi Note 14 Pro wins on camera. Both are 2025 models worth considering."
+4. All reasoning happens internally — NEVER put it in the answer field
+
 PHASE 1 — CANDIDATE GENERATION (8–15 products)
 ───────────────────────────────────────────────
 Generate a candidate pool from:
@@ -640,7 +648,7 @@ Select TOP 3 by score.
 PHASE 3 — RESPONSE FORMAT (JSON ONLY, no other text)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {
-  "answer": "2-3 sentences: specific buying advice for ${loc||'India'}. State key tradeoff. Mention why #1 wins.",
+  "answer": "2-3 sentences of BUYING ADVICE ONLY — no reasoning, no thinking, no methodology. Just: what to buy, why, and key tradeoff for the user. Example: For under ₹20k in India, the iQOO Z9x leads on raw performance while Redmi Note 14 wins on camera. Both are 2025 models with strong service networks.",
   "products": [
     {
       "name": "Full Product Name with variant/storage/colour",
@@ -691,7 +699,35 @@ PHASE 3 — RESPONSE FORMAT (JSON ONLY, no other text)
       const parsed = JSON.parse(content)
       const prods = Array.isArray(parsed.products)?parsed.products:[]
       console.log(`[OpenAI] products:${prods.length}`)
-      return { answer:String(parsed.answer||''), products:prods }
+
+      // Strip reasoning/CoT that reasoning models sometimes put in answer field
+      let answer = String(parsed.answer||'')
+      // If answer starts with reasoning patterns, extract just the buying advice
+      const reasoningPatterns = [
+        /^(okay|alright|sure|let me|i need to|i'll|i will|i should|first,|the user|to answer|looking at|based on|analyzing|let's start|step [0-9])/i,
+        /^(okay,? the user|let me start|i need to generate|i'll generate|let me analyze)/i,
+      ]
+      for (const pat of reasoningPatterns) {
+        if (pat.test(answer.trim())) {
+          // Try to find the actual advice after the reasoning
+          // Look for sentences that sound like recommendations
+          const adviceMatch = answer.match(/(?:for (?:under|around)|the (?:best|top)|(?:i )?recommend|in (?:india|this price)|all three|between these)[^.!?]*[.!?]/i)
+          if (adviceMatch) {
+            // Find where actual advice starts
+            const adviceIdx = answer.toLowerCase().indexOf(adviceMatch[0].toLowerCase())
+            if (adviceIdx > 0 && adviceIdx < answer.length * 0.7) {
+              answer = answer.slice(adviceIdx).split('\n')[0].trim()
+            }
+          }
+          // If still looks like reasoning, use a generic fallback
+          if (reasoningPatterns.some(p => p.test(answer.trim()))) {
+            answer = ''  // Will use fallback below
+          }
+          break
+        }
+      }
+
+      return { answer, products: prods }
     } catch(e) {
       console.error(`[OpenAI] attempt ${attempt+1}:`,String(e))
       if(attempt<2) await new Promise(r=>setTimeout(r,1000))
