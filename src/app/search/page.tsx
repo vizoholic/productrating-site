@@ -274,7 +274,21 @@ function SearchResults(){
   const doSearch=async(q:string)=>{
     if(!q.trim())return
     setLoading(true);setCalled(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([])
-    try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();if(d.isOutOfScope){setAnswer('__OUT_OF_SCOPE__');setAiProducts([]);setSerpProducts([]);setRelated([]);setLoading(false);return;}setAnswer(d.answer||'');setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
+    try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();if(d.isOutOfScope){setAnswer('__OUT_OF_SCOPE__');setAiProducts([]);setSerpProducts([]);setRelated([]);setLoading(false);return;}
+      // Strip any reasoning preamble that leaked through
+      let cleanAnswer = String(d.answer||'')
+      const coTPrefixes = ['okay,','okay the','let me','i need','i will','i'll','first,','the user','to answer','analyzing','step 1','step1']
+      if(coTPrefixes.some(p=>cleanAnswer.toLowerCase().startsWith(p))) {
+        // Find first sentence that sounds like advice
+        const sentences = cleanAnswer.split(/[.!?]+/).map((s:string)=>s.trim()).filter((s:string)=>s.length>20)
+        const adviceSentence = sentences.find((s:string)=>
+          /(?:for |the best|recommend|in india|₹|under|price|performance|camera|battery|display|value)/i.test(s)
+        )
+        cleanAnswer = adviceSentence ? adviceSentence + '.' : ''
+      }
+      // Strip "Advice:" prefix if present
+      cleanAnswer = cleanAnswer.replace(/^advice:\s*/i,'').trim()
+      setAnswer(cleanAnswer);setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
     catch{setAnswer('Something went wrong. Please try again.')}finally{setLoading(false)}
   }
   if(query&&!called&&!loading){doSearch(query);setCalled(true)}
