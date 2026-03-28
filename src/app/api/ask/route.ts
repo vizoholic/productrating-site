@@ -1,5 +1,5 @@
 // src/app/api/ask/route.ts
-// Sarvam AI = voice STT only | OpenAI GPT-4o = product intelligence | Google Shopping = live prices
+// Sarvam = voice STT | OpenAI = product intelligence | Google Shopping = prices
 
 import { NextRequest, NextResponse } from 'next/server'
 import { runSearch } from '@/lib/search'
@@ -15,11 +15,11 @@ const ALLOWED_ORIGINS = [
 
 function isOriginAllowed(req: NextRequest): boolean {
   const origin = req.headers.get('origin')
-  if (!origin) return true // server-side / SSR
+  if (!origin) return true
   return ALLOWED_ORIGINS.some(o => origin.startsWith(o))
 }
 
-function sanitise(str: string, maxLen = 300): string {
+function sanitise(str: string, maxLen = 500): string {
   return str.trim().slice(0, maxLen).replace(/[<>]/g, '')
 }
 
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     const sf = new FormData()
     sf.append('file', f)
     sf.append('model', 'saarika:v2.5')
-    sf.append('language_code', 'unknown') // auto-detect Indian language
+    sf.append('language_code', 'unknown')
 
     try {
       const sr = await fetch('https://api.sarvam.ai/speech-to-text', {
@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'STT failed', transcript: '' }, { status: 500 })
       }
       let d: { transcript?: string; language_code?: string } = {}
-      try { d = JSON.parse(rt) } catch {}
+      try { d = JSON.parse(rt) } catch { /* ignore */ }
       return NextResponse.json({
         transcript: d.transcript || '',
         detectedLanguage: d.language_code || '',
@@ -71,13 +71,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── PRODUCT SEARCH — OpenAI (primary) + Sarvam (fallback) + Google Shopping ──
+  // ── PRODUCT SEARCH — OpenAI primary + Sarvam fallback + Google Shopping ──
   if (ct.includes('application/json')) {
-    const sarvamKey  = process.env.SARVAM_API_KEY  || ''
-    const openaiKey  = process.env.OPENAI_API_KEY   || ''
+    const sarvamKey = process.env.SARVAM_API_KEY || ''
+    const openaiKey = process.env.OPENAI_API_KEY || ''
 
     if (!sarvamKey && !openaiKey) {
-      return NextResponse.json({ error: 'No AI configured' }, { status: 500 })
+      return NextResponse.json({ error: 'No AI key configured' }, { status: 500 })
     }
 
     let body: { question?: string; city?: string; state?: string } = {}
@@ -86,17 +86,29 @@ export async function POST(req: NextRequest) {
     }
 
     const question = sanitise(body.question || '', 500)
-    if (!question) return NextResponse.json({ error: 'No question' }, { status: 400 })
+    if (!question) return NextResponse.json({ error: 'No question provided' }, { status: 400 })
 
     const city  = sanitise(body.city  || '', 100)
     const state = sanitise(body.state || '', 100)
 
+    console.log(`[Route] question="${question}" city="${city}" state="${state}"`)
+    console.log(`[Route] openaiKey=${openaiKey ? 'SET' : 'MISSING'} sarvamKey=${sarvamKey ? 'SET' : 'MISSING'}`)
+
     try {
-      const result = await runSearch(question, city, state, sarvamKey, openaiKey || undefined)
+      const result = await runSearch(
+        question, city, state,
+        sarvamKey,
+        openaiKey || undefined  // Pass OpenAI key — this is the primary AI engine
+      )
       return NextResponse.json(result)
     } catch (e) {
-      console.error('[Search] runSearch threw:', String(e))
-      return NextResponse.json({ error: 'Search failed', answer: 'Something went wrong. Please try again.', aiProducts: [], serpProducts: [], relatedSearches: [] }, { status: 500 })
+      console.error('[Route] runSearch error:', String(e))
+      return NextResponse.json({
+        error: 'Search failed',
+        answer: 'Something went wrong. Please try again.',
+        aiProducts: [], serpProducts: [], relatedSearches: [],
+        algorithm_version: 'error',
+      }, { status: 500 })
     }
   }
 
