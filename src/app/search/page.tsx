@@ -275,20 +275,17 @@ function SearchResults(){
     if(!q.trim())return
     setLoading(true);setCalled(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([])
     try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();if(d.isOutOfScope){setAnswer('__OUT_OF_SCOPE__');setAiProducts([]);setSerpProducts([]);setRelated([]);setLoading(false);return;}
-      // Strip any reasoning preamble that leaked through
-      let cleanAnswer = String(d.answer||'')
-      const coTPrefixes = ['okay,','okay the','let me','i need','i will','i'll','first,','the user','to answer','analyzing','step 1','step1']
-      if(coTPrefixes.some(p=>cleanAnswer.toLowerCase().startsWith(p))) {
-        // Find first sentence that sounds like advice
-        const sentences = cleanAnswer.split(/[.!?]+/).map((x:string)=>x.trim()).filter((x:string)=>x.length>20)
-        const adviceSentence = sentences.find((x:string)=>
-          /(?:for |the best|recommend|in india|₹|under|price|performance|camera|battery|display|value)/i.test(x)
+      // Strip reasoning preamble if model leaked chain-of-thought
+      let ans = String(d.answer||'')
+      ans = ans.replace(/^advice:\s*/i,'').trim()
+      const startsWithReasoning = /^(okay|alright|let me|i need|i will|first,|the user|to answer|analyzing|step [0-9])/i.test(ans)
+      if(startsWithReasoning){
+        const found = ans.split(/[.!?]+/).map((x:string)=>x.trim()).find((x:string)=>
+          x.length>20 && /for |best|recommend|india|₹|under |price|performance|camera|battery|display|value/i.test(x)
         )
-        cleanAnswer = adviceSentence ? adviceSentence + '.' : ''
+        ans = found ? found+'.' : ''
       }
-      // Strip "Advice:" prefix if present
-      cleanAnswer = cleanAnswer.replace(/^advice:\s*/i,'').trim()
-      setAnswer(cleanAnswer);setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
+      setAnswer(ans);setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
     catch{setAnswer('Something went wrong. Please try again.')}finally{setLoading(false)}
   }
   if(query&&!called&&!loading){doSearch(query);setCalled(true)}
