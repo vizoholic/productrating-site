@@ -1,24 +1,40 @@
-// src/lib/search.ts — ProductRating.in Electronics
-// FULL SCORING ENGINE: Candidates → Multi-factor Score → Ranked Top 3
+// src/lib/search.ts
+// ProductRating.in — World-Class Electronics Recommendation Engine v4
+// Pipeline: Query Analysis → Candidate Pool → Multi-Factor Scoring → Successor Check → Location Filter → Top 3 → Price Enrichment
 
 import { searchGoogleShopping, buildProductContext, type SerpSearchResult } from './serpapi'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
 export type PlatformPrice = {
-  platform: string   // "Amazon" | "Flipkart" | "Croma" | "Reliance Digital" etc
-  price: string      // "₹38,990"
-  url: string        // direct buy link
-  availability: 'in_stock' | 'limited' | 'out_of_stock'
+  platform: string
+  price: string
+  price_numeric: number
+  url: string
+  availability: 'in_stock' | 'limited' | 'out_of_stock' | 'unknown'
+  is_lowest: boolean
 }
 
 export type AiProduct = {
-  name: string; price: string; seller: string
-  rating: number; platform_rating: number
-  reviews: string; badge: string; reason: string
-  pros: string[]; cons: string[]; avoid_if: string
-  score?: number
-  platform_prices?: PlatformPrice[]   // multi-platform price comparison
-  best_price?: string                 // lowest price across all platforms
-  best_price_platform?: string        // platform with lowest price
+  name: string
+  price: string
+  seller: string
+  rating: number            // PR Score (fake-adjusted)
+  platform_rating: number   // Raw weighted platform avg
+  reviews: string           // Combined cross-platform count
+  badge: string
+  reason: string
+  pros: string[]
+  cons: string[]
+  avoid_if: string
+  score?: number            // Algorithm score /100
+  successor_of?: string     // If this is recommended over an older model
+  platform_prices?: PlatformPrice[]
+  best_price?: string
+  best_price_platform?: string
+  best_price_url?: string
 }
 
 export type SearchResult = {
@@ -27,127 +43,337 @@ export type SearchResult = {
   serpProducts: SerpSearchResult['products']
   relatedSearches: string[]
   isOutOfScope?: boolean
+  location_used?: string    // What location was applied
+  algorithm_version: string
 }
 
-const cache = new Map<string, { result: SearchResult; ts: number }>()
-const CACHE_TTL = 30 * 60 * 1000
+// ─────────────────────────────────────────────────────────────────────────────
+// CONSTANTS & CACHE
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────
-// ELECTRONICS SCOPE GATE
-// ─────────────────────────────────────────────
+const cache = new Map<string, { result: SearchResult; ts: number }>()
+const CACHE_TTL = 20 * 60 * 1000  // 20 min — electronics prices change
+
+const ALGORITHM_VERSION = 'PRv4.0-electronics'
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCOPE GATE — Electronics only
+// ─────────────────────────────────────────────────────────────────────────────
+
 const ELECTRONICS_RE = [
-  /\b(phone|mobile|smartphone|5g phone|foldable|flip phone)\b/i,
-  /\b(smartwatch|smart watch|wearable|fitness band|earbuds|earphone|headphone|tws|neckband|bluetooth speaker|portable speaker|soundbar|home theatre)\b/i,
-  /\b(laptop|notebook|ultrabook|gaming laptop|chromebook|tablet|computer|desktop|monitor|keyboard|mouse|webcam|printer|router|wifi|modem)\b/i,
-  /\b(tv|television|smart tv|oled|qled|4k tv|projector)\b/i,
-  /\b(ac|air conditioner|inverter ac|split ac|window ac|refrigerator|fridge|washing machine|front load|top load|microwave|oven|air fryer|vacuum cleaner|air purifier|water purifier|ro purifier|geyser|water heater|dishwasher|mixer grinder|induction|electric kettle|trimmer|shaver|hair dryer)\b/i,
-  /\b(camera|dslr|mirrorless|action camera|dashcam|power bank|charger|ssd|hard disk|hdd|pendrive|memory card)\b/i,
-  /\b(gaming|console|playstation|xbox|nintendo|gpu|graphics card|cpu|processor|ram)\b/i,
+  /\b(phone|mobile|smartphone|5g|foldable|flip phone|iphone|android)\b/i,
+  /\b(laptop|notebook|ultrabook|gaming laptop|chromebook|macbook)\b/i,
+  /\b(tablet|ipad|android tablet|e-reader|kindle)\b/i,
+  /\b(tv|television|smart tv|oled|qled|4k|8k|projector|monitor)\b/i,
+  /\b(ac|air conditioner|inverter ac|split ac|window ac)\b/i,
+  /\b(refrigerator|fridge|freezer)\b/i,
+  /\b(washing machine|washer|dryer|front load|top load)\b/i,
+  /\b(earbuds|earphone|headphone|tws|neckband|iem|in-ear)\b/i,
+  /\b(speaker|soundbar|home theatre|subwoofer|bluetooth speaker)\b/i,
+  /\b(smartwatch|smart watch|fitness band|wearable|fitness tracker)\b/i,
+  /\b(camera|dslr|mirrorless|action cam|webcam|dashcam|cctv)\b/i,
+  /\b(microwave|oven|air fryer|mixer grinder|induction|electric kettle|toaster)\b/i,
+  /\b(vacuum cleaner|robot vacuum|air purifier|water purifier|ro|geyser|water heater|dishwasher)\b/i,
+  /\b(trimmer|shaver|hair dryer|straightener|epilator)\b/i,
+  /\b(power bank|charger|ssd|hard disk|hdd|pendrive|memory card|router|wifi)\b/i,
+  /\b(gaming|console|playstation|xbox|nintendo|controller|gpu|graphics card|cpu|processor|ram|motherboard)\b/i,
+  /\b(printer|scanner|ups|stabilizer|extension board|smart home|smart plug|smart bulb)\b/i,
 ]
 const NON_ELECTRONICS_RE = [
-  /\b(recipe|food|restaurant|hotel|travel|flight|visa|insurance|mutual fund|stock|loan|credit card|fashion|cloth|dress|shoe|bag|jewellery|book|novel|medicine|doctor|school|college|job|salary)\b/i,
+  /\b(recipe|food|restaurant|hotel|travel|flight|visa|insurance|mutual fund|stock market|loan|credit card)\b/i,
+  /\b(fashion|clothing|cloth|dress|shirt|shoe|bag|jewellery|jewelry|saree|kurta)\b/i,
+  /\b(book|novel|fiction|textbook|comic|magazine)\b/i,
+  /\b(medicine|doctor|hospital|health advice|diet|nutrition)\b/i,
+  /\b(school|college|university|course|exam|career|job|salary|internship)\b/i,
 ]
+
 function isElectronics(q: string): boolean {
   if (NON_ELECTRONICS_RE.some(p => p.test(q))) return false
   return ELECTRONICS_RE.some(p => p.test(q))
 }
 
-type Cat = 'smartphone'|'laptop'|'tv'|'ac'|'refrigerator'|'washing_machine'|'audio'|'wearable'|'tablet'|'camera'|'appliance'|'accessory'|'generic'
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORY DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+type Cat =
+  | 'smartphone' | 'laptop' | 'tablet' | 'tv'
+  | 'ac' | 'refrigerator' | 'washing_machine'
+  | 'audio_tws' | 'audio_headphone' | 'audio_speaker' | 'soundbar'
+  | 'smartwatch' | 'camera' | 'kitchen_appliance'
+  | 'personal_care' | 'air_purifier' | 'water_purifier'
+  | 'accessory_storage' | 'accessory_power' | 'accessory_network'
+  | 'gaming_console' | 'gaming_pc_component' | 'smart_home'
+  | 'generic_electronics'
+
 function detectCat(q: string): Cat {
-  if (/\b(phone|mobile|smartphone|5g phone|foldable)\b/i.test(q)) return 'smartphone'
-  if (/\b(laptop|notebook|ultrabook|chromebook|gaming laptop)\b/i.test(q)) return 'laptop'
-  if (/\b(tv|television|smart tv|oled|qled|4k)\b/i.test(q)) return 'tv'
-  if (/\b(ac|air conditioner|inverter ac|split ac)\b/i.test(q)) return 'ac'
-  if (/\b(refrigerator|fridge)\b/i.test(q)) return 'refrigerator'
-  if (/\b(washing machine|washer)\b/i.test(q)) return 'washing_machine'
-  if (/\b(earbuds|earphone|headphone|tws|speaker|soundbar|neckband)\b/i.test(q)) return 'audio'
-  if (/\b(smartwatch|wearable|fitness band)\b/i.test(q)) return 'wearable'
-  if (/\b(tablet|ipad|android tablet)\b/i.test(q)) return 'tablet'
-  if (/\b(camera|dslr|mirrorless)\b/i.test(q)) return 'camera'
-  if (/\b(microwave|air fryer|mixer|kettle|iron|geyser|purifier|vacuum)\b/i.test(q)) return 'appliance'
-  if (/\b(charger|cable|power bank|ssd|hard disk|memory card|adapter)\b/i.test(q)) return 'accessory'
-  return 'generic'
+  const t = q.toLowerCase()
+  if (/\b(phone|mobile|smartphone|5g phone|foldable|iphone|pixel|galaxy s|oneplus|redmi|realme phone|poco phone|vivo|iqoo|nothing phone|cmf phone|motorola edge|moto g)\b/.test(t)) return 'smartphone'
+  if (/\b(laptop|notebook|ultrabook|gaming laptop|chromebook|macbook|thinkpad|ideapad|vivobook|inspiron|pavilion|victus|rog|tuf gaming)\b/.test(t)) return 'laptop'
+  if (/\b(tablet|ipad|tab|android tablet|e-reader|kindle|galaxy tab|redmi pad|realme pad)\b/.test(t)) return 'tablet'
+  if (/\b(tv|television|smart tv|oled tv|qled tv|4k tv|8k tv|projector|monitor|display)\b/.test(t)) return 'tv'
+  if (/\b(ac|air conditioner|inverter ac|split ac|window ac|cassette ac|portable ac)\b/.test(t)) return 'ac'
+  if (/\b(refrigerator|fridge|freezer)\b/.test(t)) return 'refrigerator'
+  if (/\b(washing machine|washer|front load|top load|semi-automatic|fully automatic)\b/.test(t)) return 'washing_machine'
+  if (/\b(tws|true wireless|earbuds|in-ear|iem|wireless earphone)\b/.test(t)) return 'audio_tws'
+  if (/\b(headphone|over ear|on ear|wired headphone|headset|neckband)\b/.test(t)) return 'audio_headphone'
+  if (/\b(bluetooth speaker|portable speaker|wireless speaker|party speaker|speaker box)\b/.test(t)) return 'audio_speaker'
+  if (/\b(soundbar|home theatre|home theater|subwoofer|surround sound)\b/.test(t)) return 'soundbar'
+  if (/\b(smartwatch|smart watch|fitness band|fitness tracker|wearable|band)\b/.test(t)) return 'smartwatch'
+  if (/\b(camera|dslr|mirrorless|action camera|gopro|dashcam|cctv|security camera|webcam)\b/.test(t)) return 'camera'
+  if (/\b(microwave|oven|air fryer|mixer|grinder|food processor|induction|electric kettle|toaster|sandwich maker|juicer|blender)\b/.test(t)) return 'kitchen_appliance'
+  if (/\b(trimmer|shaver|hair dryer|hair straightener|epilator|face wash|beard)\b/.test(t)) return 'personal_care'
+  if (/\b(air purifier|hepa filter|pm2\.5)\b/.test(t)) return 'air_purifier'
+  if (/\b(water purifier|ro|ro purifier|water filter|alkaline water)\b/.test(t)) return 'water_purifier'
+  if (/\b(ssd|hard disk|hdd|pendrive|usb drive|memory card|sd card|storage)\b/.test(t)) return 'accessory_storage'
+  if (/\b(power bank|charger|gan charger|wireless charger|cable|adapter|ups|stabilizer|extension|inverter)\b/.test(t)) return 'accessory_power'
+  if (/\b(router|wifi|mesh|modem|network|extender|access point)\b/.test(t)) return 'accessory_network'
+  if (/\b(console|playstation|ps5|xbox|nintendo|switch)\b/.test(t)) return 'gaming_console'
+  if (/\b(gpu|graphics card|cpu|processor|ram|motherboard|cooler|cabinet|psu|power supply)\b/.test(t)) return 'gaming_pc_component'
+  if (/\b(smart plug|smart bulb|smart switch|alexa|google home|smart home|robot vacuum|vacuum cleaner|robovac|geyser|water heater|dishwasher)\b/.test(t)) return 'smart_home'
+  return 'generic_electronics'
 }
 
-// ─────────────────────────────────────────────
-// CITY / STATE PROFILES
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORY-SPECIFIC SCORING WEIGHTS
+// Different categories need different emphasis
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ScoringWeights = {
+  relevance: number      // /30
+  recency: number        // /20
+  review_volume: number  // /20
+  pr_score: number       // /15 (fake-adjusted weighted rating)
+  value_for_money: number // /10
+  service_warranty: number // /5
+}
+
+function getCategoryWeights(cat: Cat): ScoringWeights {
+  // Appliances: recency less important (they last 7-10 years, 2022 model still valid)
+  // Audio accessories: review volume very important due to high fake review risk
+  // Phones/Laptops: recency critical (tech moves fast)
+  const weights: Record<string, ScoringWeights> = {
+    smartphone:          { relevance:30, recency:22, review_volume:18, pr_score:15, value_for_money:10, service_warranty:5 },
+    laptop:              { relevance:30, recency:20, review_volume:16, pr_score:16, value_for_money:12, service_warranty:6 },
+    tablet:              { relevance:30, recency:18, review_volume:18, pr_score:16, value_for_money:12, service_warranty:6 },
+    tv:                  { relevance:30, recency:16, review_volume:20, pr_score:16, value_for_money:12, service_warranty:6 },
+    ac:                  { relevance:30, recency:12, review_volume:22, pr_score:16, value_for_money:10, service_warranty:10 },
+    refrigerator:        { relevance:30, recency:10, review_volume:24, pr_score:16, value_for_money:10, service_warranty:10 },
+    washing_machine:     { relevance:30, recency:10, review_volume:22, pr_score:16, value_for_money:10, service_warranty:12 },
+    audio_tws:           { relevance:30, recency:20, review_volume:15, pr_score:18, value_for_money:12, service_warranty:5 },
+    audio_headphone:     { relevance:30, recency:18, review_volume:17, pr_score:18, value_for_money:12, service_warranty:5 },
+    audio_speaker:       { relevance:30, recency:16, review_volume:18, pr_score:18, value_for_money:12, service_warranty:6 },
+    soundbar:            { relevance:30, recency:14, review_volume:20, pr_score:18, value_for_money:12, service_warranty:6 },
+    smartwatch:          { relevance:30, recency:22, review_volume:16, pr_score:16, value_for_money:12, service_warranty:4 },
+    camera:              { relevance:30, recency:16, review_volume:18, pr_score:18, value_for_money:10, service_warranty:8 },
+    kitchen_appliance:   { relevance:30, recency:8,  review_volume:26, pr_score:16, value_for_money:10, service_warranty:10 },
+    personal_care:       { relevance:30, recency:16, review_volume:20, pr_score:18, value_for_money:12, service_warranty:4 },
+    air_purifier:        { relevance:30, recency:14, review_volume:22, pr_score:16, value_for_money:10, service_warranty:8 },
+    water_purifier:      { relevance:30, recency:12, review_volume:22, pr_score:16, value_for_money:10, service_warranty:10 },
+    accessory_storage:   { relevance:30, recency:18, review_volume:18, pr_score:18, value_for_money:14, service_warranty:2 },
+    accessory_power:     { relevance:30, recency:16, review_volume:18, pr_score:18, value_for_money:14, service_warranty:4 },
+    accessory_network:   { relevance:30, recency:18, review_volume:18, pr_score:16, value_for_money:14, service_warranty:4 },
+    gaming_console:      { relevance:30, recency:20, review_volume:20, pr_score:16, value_for_money:8,  service_warranty:6 },
+    gaming_pc_component: { relevance:30, recency:22, review_volume:16, pr_score:18, value_for_money:10, service_warranty:4 },
+    smart_home:          { relevance:30, recency:14, review_volume:20, pr_score:16, value_for_money:12, service_warranty:8 },
+  }
+  return weights[cat] || { relevance:30, recency:16, review_volume:20, pr_score:16, value_for_money:12, service_warranty:6 }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FAKE REVIEW MULTIPLIERS (India-specific brand research)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getFakeMultiplier(brand: string, cat: Cat): number {
+  const b = brand.toLowerCase()
+  // Very high fake risk — primarily budget India brands with known paid review history
+  const vhigh = ['boat','noise','boult','zebronics','ptron','wings','truke','hammer','mivi','crossbeats','digitek','f&d','fingers','portronics budget','amkette','intex','lava audio']
+  // High fake risk — aggressive marketing, launch discounts tied to reviews
+  const high = ['realme','iqoo launch','poco launch','infinix','tecno','lava phone','micromax','itel','symphony','gionee','yu']
+  // Medium — some fake reviews especially during launches, mostly genuine
+  const medium = ['redmi','xiaomi mi','vivo','oppo','oneplus budget','nothing cmf','motorola budget','jbl budget','philips budget','havells budget','orient','usha budget']
+  // Low — established brands with review moderation, fewer incentivised reviews
+  const low = ['samsung','sony','lg','apple','bose','sennheiser','jbl premium','motorola flagship','nokia','voltas','daikin','hitachi','whirlpool','godrej','bosch','siemens','panasonic','toshiba','haier premium','blue star','carrier','honeywell','dyson','philips premium','havells premium','bajaj electricals','crompton','orient premium']
+
+  if (vhigh.some(r => b.includes(r))) return 0.68
+  if (high.some(r => b.includes(r)))  return 0.79
+  if (medium.some(r => b.includes(r))) return 0.87
+  if (low.some(r => b.includes(r)))   return 0.94
+
+  // Category defaults
+  if (cat === 'audio_tws' || cat === 'audio_speaker') return 0.72  // Very high fake in budget audio
+  if (cat === 'accessory_power' || cat === 'accessory_storage') return 0.74
+  if (cat === 'smartphone') return 0.83
+  if (cat === 'ac' || cat === 'refrigerator' || cat === 'washing_machine') return 0.91
+  if (cat === 'kitchen_appliance') return 0.85
+  return 0.84
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOCATION PROFILES — 20 cities + state fallbacks
+// ─────────────────────────────────────────────────────────────────────────────
+
 type CityProfile = {
-  label: string
-  climate: string
-  summer_peak_temp: number    // °C
+  label: string; climate: string; peak_temp: number
   humidity: 'low'|'moderate'|'high'|'very_high'
-  water_hardness: 'soft'|'moderate'|'hard'|'very_hard'  // TDS ppm
-  power_stability: 'stable'|'moderate'|'frequent_cuts'
-  service_hub: boolean
-  air_quality: 'good'|'moderate'|'poor'|'very_poor'     // AQI typical
-  boost_features: string[]    // Features to score higher for this city
-  penalise_features: string[] // Features to score lower (missing for this city)
-  service_brands: string[]    // Best after-sales in this city
+  water_tds: 'soft'|'moderate'|'hard'|'very_hard'
+  power: 'stable'|'moderate'|'frequent_cuts'
+  service_hub: boolean; aqi: 'good'|'moderate'|'poor'|'very_poor'
+  boost: string[]    // Feature keywords → +pts
+  penalty: string[]  // Absence of these → -pts
+  best_brands_service: string[]
 }
 
-const CITY_PROFILES: Record<string, CityProfile> = {
-  // ── Metro cities ──
-  'chennai':    { label:'Chennai', climate:'Hot+humid coastal', summer_peak_temp:40, humidity:'very_high', water_hardness:'hard', power_stability:'moderate', service_hub:true,  air_quality:'moderate', boost_features:['humidity resistance','salt air protection','5-star energy','efficient cooling','IP rating'], penalise_features:['no humidity resistance','poor coastal performance'], service_brands:['Samsung','LG','Voltas','Daikin','Hitachi'] },
-  'mumbai':     { label:'Mumbai', climate:'Hot+humid coastal', summer_peak_temp:38, humidity:'very_high', water_hardness:'moderate', power_stability:'stable', service_hub:true, air_quality:'moderate', boost_features:['compact design','humidity resistance','monsoon proofing','rust protection'], penalise_features:['large footprint'], service_brands:['Samsung','LG','Sony','Voltas'] },
-  'delhi':      { label:'Delhi', climate:'Extreme heat+cold+dusty', summer_peak_temp:48, humidity:'low', water_hardness:'very_hard', power_stability:'frequent_cuts', service_hub:true, air_quality:'very_poor', boost_features:['hot+cold AC','PM2.5 filter','dust filter','hard water compatibility','inverter tech','UPS support','voltage protection'], penalise_features:['single season AC','no dust protection','no hard water support'], service_brands:['Samsung','Voltas','LG','Daikin'] },
-  'bengaluru':  { label:'Bengaluru', climate:'Mild pleasant', summer_peak_temp:35, humidity:'moderate', water_hardness:'moderate', power_stability:'stable', service_hub:true, air_quality:'moderate', boost_features:['smart features','energy efficiency','warranty','software support'], penalise_features:[], service_brands:['Samsung','Sony','LG','Apple'] },
-  'kolkata':    { label:'Kolkata', climate:'Hot+humid', summer_peak_temp:40, humidity:'high', water_hardness:'soft', power_stability:'moderate', service_hub:true, air_quality:'poor', boost_features:['humidity resistance','cooling efficiency','mosquito protection'], penalise_features:[], service_brands:['Samsung','LG','Voltas','Hitachi'] },
-  'hyderabad':  { label:'Hyderabad', climate:'Hot+dry', summer_peak_temp:43, humidity:'low', water_hardness:'hard', power_stability:'moderate', service_hub:true, air_quality:'moderate', boost_features:['5-star energy','dust filter','hard water compatibility','cooling power'], penalise_features:['no energy rating'], service_brands:['Samsung','LG','Voltas','Daikin'] },
-  'pune':       { label:'Pune', climate:'Moderate', summer_peak_temp:38, humidity:'moderate', water_hardness:'hard', power_stability:'stable', service_hub:true, air_quality:'moderate', boost_features:['energy efficiency','hard water compatibility','value for money'], penalise_features:[], service_brands:['Samsung','LG','Sony','Voltas'] },
-  'ahmedabad':  { label:'Ahmedabad', climate:'Extreme heat+dry', summer_peak_temp:47, humidity:'low', water_hardness:'very_hard', power_stability:'frequent_cuts', service_hub:false, air_quality:'poor', boost_features:['inverter compressor','5-star energy','hard water filter','voltage stabiliser','UPS support'], penalise_features:['no inverter','poor heat handling'], service_brands:['LG','Voltas','Samsung'] },
-  'jaipur':     { label:'Jaipur', climate:'Extreme heat+dust, cold winters', summer_peak_temp:46, humidity:'low', water_hardness:'very_hard', power_stability:'frequent_cuts', service_hub:false, air_quality:'poor', boost_features:['hot+cold AC','dust filter','inverter','hard water','UPS support'], penalise_features:['single season','no dust filter'], service_brands:['Voltas','LG','Samsung'] },
-  'lucknow':    { label:'Lucknow', climate:'Hot humid+cold winters', summer_peak_temp:44, humidity:'moderate', water_hardness:'hard', power_stability:'frequent_cuts', service_hub:false, air_quality:'very_poor', boost_features:['hot+cold AC','power cut protection','hard water','inverter'], penalise_features:[], service_brands:['Samsung','LG','Voltas'] },
-  // ── Tier 2 cities ──
-  'coimbatore': { label:'Coimbatore', climate:'Moderate+industrial', summer_peak_temp:38, humidity:'moderate', water_hardness:'moderate', power_stability:'stable', service_hub:false, air_quality:'moderate', boost_features:['energy efficiency','durability'], penalise_features:[], service_brands:['LG','Samsung','Voltas'] },
-  'chandigarh': { label:'Chandigarh', climate:'Hot summers+cold winters', summer_peak_temp:44, humidity:'moderate', water_hardness:'hard', power_stability:'stable', service_hub:false, air_quality:'moderate', boost_features:['hot+cold AC','inverter','energy efficiency'], penalise_features:[], service_brands:['Samsung','LG','Voltas'] },
-  'indore':     { label:'Indore', climate:'Hot dry+cold winters', summer_peak_temp:43, humidity:'low', water_hardness:'hard', power_stability:'moderate', service_hub:false, air_quality:'moderate', boost_features:['inverter','5-star energy','hard water','hot+cold'], penalise_features:[], service_brands:['LG','Samsung','Voltas'] },
-  'kochi':      { label:'Kochi', climate:'Hot+humid coastal', summer_peak_temp:36, humidity:'very_high', water_hardness:'soft', power_stability:'stable', service_hub:false, air_quality:'good', boost_features:['humidity resistance','salt air','monsoon proofing','IP rating'], penalise_features:['no humidity protection'], service_brands:['LG','Samsung','Daikin'] },
-  'noida':      { label:'Noida/NCR', climate:'Extreme heat+cold+dusty', summer_peak_temp:48, humidity:'low', water_hardness:'very_hard', power_stability:'moderate', service_hub:true, air_quality:'very_poor', boost_features:['PM2.5 filter','dust filter','hot+cold','hard water','inverter'], penalise_features:['no dust filter','no AQI protection'], service_brands:['Samsung','LG','Voltas','Daikin'] },
-  'gurgaon':    { label:'Gurgaon/NCR', climate:'Extreme heat+cold+dusty', summer_peak_temp:48, humidity:'low', water_hardness:'very_hard', power_stability:'moderate', service_hub:true, air_quality:'very_poor', boost_features:['PM2.5 filter','dust filter','hot+cold','smart home','inverter'], penalise_features:[], service_brands:['Samsung','LG','Voltas','Daikin'] },
+const CITY_DB: Record<string, CityProfile> = {
+  'chennai':    { label:'Chennai', climate:'Hot+humid coastal', peak_temp:40, humidity:'very_high', water_tds:'hard', power:'moderate', service_hub:true,  aqi:'moderate',   boost:['humidity resistant','5-star energy','anti-corrosion','IP53','coastal protection','efficient cooling'], penalty:['no humidity protection'], best_brands_service:['Samsung','LG','Voltas','Daikin','Hitachi'] },
+  'mumbai':     { label:'Mumbai',  climate:'Hot+humid coastal', peak_temp:38, humidity:'very_high', water_tds:'moderate', power:'stable', service_hub:true, aqi:'moderate',   boost:['compact','humidity resistant','monsoon proof','IP rating','anti-rust'], penalty:['large footprint'], best_brands_service:['Samsung','LG','Sony','Voltas','Whirlpool'] },
+  'delhi':      { label:'Delhi',   climate:'Extreme heat+cold+dusty', peak_temp:48, humidity:'low', water_tds:'very_hard', power:'frequent_cuts', service_hub:true,  aqi:'very_poor', boost:['hot+cold','PM2.5 filter','dust filter','hard water','inverter','auto-restart','voltage protection'], penalty:['single season','no dust filter','no hard water support'], best_brands_service:['Samsung','Voltas','LG','Daikin','Carrier'] },
+  'bengaluru':  { label:'Bengaluru', climate:'Mild pleasant', peak_temp:35, humidity:'moderate', water_tds:'moderate', power:'stable', service_hub:true,  aqi:'moderate',   boost:['smart features','energy efficient','wifi enabled','warranty'], penalty:[], best_brands_service:['Samsung','Sony','LG','Apple','Voltas'] },
+  'hyderabad':  { label:'Hyderabad', climate:'Hot+dry', peak_temp:43, humidity:'low', water_tds:'hard', power:'moderate', service_hub:true,  aqi:'moderate',   boost:['5-star energy','dust filter','hard water','powerful cooling'], penalty:['no energy rating'], best_brands_service:['LG','Samsung','Voltas','Daikin'] },
+  'kolkata':    { label:'Kolkata', climate:'Hot+humid', peak_temp:40, humidity:'high', water_tds:'soft', power:'moderate', service_hub:true,  aqi:'poor',       boost:['humidity resistant','mosquito protection','efficient cooling'], penalty:[], best_brands_service:['Samsung','LG','Voltas','Hitachi'] },
+  'pune':       { label:'Pune',    climate:'Moderate', peak_temp:38, humidity:'moderate', water_tds:'hard', power:'stable', service_hub:true,  aqi:'moderate',   boost:['energy efficient','hard water','value for money'], penalty:[], best_brands_service:['Samsung','LG','Sony','Voltas'] },
+  'ahmedabad':  { label:'Ahmedabad', climate:'Extreme heat+dry', peak_temp:47, humidity:'low', water_tds:'very_hard', power:'frequent_cuts', service_hub:false, aqi:'poor',       boost:['inverter','5-star','hard water filter','voltage protection','auto-restart'], penalty:['no inverter','poor heat handling'], best_brands_service:['LG','Voltas','Samsung'] },
+  'jaipur':     { label:'Jaipur',  climate:'Extreme heat+cold+dusty', peak_temp:46, humidity:'low', water_tds:'very_hard', power:'frequent_cuts', service_hub:false, aqi:'poor',  boost:['hot+cold','dust filter','inverter','hard water','auto-restart'], penalty:['cooling only','no dust filter'], best_brands_service:['Voltas','LG','Samsung'] },
+  'lucknow':    { label:'Lucknow', climate:'Hot+humid summers + cold winters', peak_temp:44, humidity:'moderate', water_tds:'hard', power:'frequent_cuts', service_hub:false, aqi:'very_poor', boost:['hot+cold','inverter','hard water','power cut protection'], penalty:[], best_brands_service:['Samsung','LG','Voltas'] },
+  'chandigarh': { label:'Chandigarh', climate:'Hot summers+cold winters', peak_temp:44, humidity:'moderate', water_tds:'hard', power:'stable', service_hub:false, aqi:'moderate',  boost:['hot+cold','inverter','energy efficient'], penalty:[], best_brands_service:['Samsung','LG','Voltas'] },
+  'kochi':      { label:'Kochi',   climate:'Hot+humid tropical', peak_temp:36, humidity:'very_high', water_tds:'soft', power:'stable', service_hub:false, aqi:'good',      boost:['humidity resistant','IP rating','anti-salt','tropical performance'], penalty:['no coastal protection'], best_brands_service:['LG','Samsung','Daikin','Voltas'] },
+  'indore':     { label:'Indore',  climate:'Hot dry+cold winters', peak_temp:43, humidity:'low', water_tds:'hard', power:'moderate', service_hub:false, aqi:'moderate',   boost:['inverter','5-star','hard water','hot+cold'], penalty:[], best_brands_service:['LG','Samsung','Voltas'] },
+  'noida':      { label:'Noida/NCR', climate:'Extreme heat+cold+dusty', peak_temp:48, humidity:'low', water_tds:'very_hard', power:'moderate', service_hub:true,  aqi:'very_poor', boost:['PM2.5 filter','hot+cold','hard water','smart home','inverter'], penalty:['no AQI protection'], best_brands_service:['Samsung','LG','Voltas','Daikin'] },
+  'gurgaon':    { label:'Gurgaon/NCR', climate:'Extreme heat+cold+dusty', peak_temp:48, humidity:'low', water_tds:'very_hard', power:'moderate', service_hub:true,  aqi:'very_poor', boost:['PM2.5 filter','hot+cold','smart features','inverter','app control'], penalty:[], best_brands_service:['Samsung','LG','Voltas','Daikin'] },
+  'coimbatore': { label:'Coimbatore', climate:'Moderate+industrial', peak_temp:38, humidity:'moderate', water_tds:'moderate', power:'stable', service_hub:false, aqi:'moderate',  boost:['energy efficient','durable'], penalty:[], best_brands_service:['LG','Samsung','Voltas'] },
+  'visakhapatnam': { label:'Visakhapatnam', climate:'Hot+humid coastal', peak_temp:38, humidity:'very_high', water_tds:'moderate', power:'moderate', service_hub:false, aqi:'moderate', boost:['humidity resistant','coastal protection','IP rating'], penalty:[], best_brands_service:['LG','Samsung','Voltas'] },
+  'nagpur':     { label:'Nagpur',  climate:'Extreme heat', peak_temp:47, humidity:'low', water_tds:'hard', power:'moderate', service_hub:false, aqi:'moderate',   boost:['5-star energy','powerful cooling','hard water'], penalty:[], best_brands_service:['Voltas','LG','Samsung'] },
+  'bhopal':     { label:'Bhopal',  climate:'Hot+moderate', peak_temp:43, humidity:'moderate', water_tds:'moderate', power:'moderate', service_hub:false, aqi:'moderate',   boost:['energy efficient','inverter'], penalty:[], best_brands_service:['LG','Samsung','Voltas'] },
+  'patna':      { label:'Patna',   climate:'Hot+humid + cold winters', peak_temp:44, humidity:'high', water_tds:'hard', power:'frequent_cuts', service_hub:false, aqi:'very_poor', boost:['inverter','auto-restart','humidity','hard water'], penalty:[], best_brands_service:['Samsung','LG','Voltas'] },
 }
 
 function getCityProfile(loc: string): CityProfile | null {
   const l = loc.toLowerCase().trim()
-  for (const [key, profile] of Object.entries(CITY_PROFILES)) {
-    if (l.includes(key) || key.includes(l)) return profile
+  for (const [key, p] of Object.entries(CITY_DB)) {
+    if (l.includes(key) || key.includes(l)) return p
   }
-  // State-level fallbacks
-  if (/rajasthan|haryana|up|uttarakhand|bihar|mp|chhattisgarh/.test(l))
-    return { label:loc, climate:'Hot+dry, cold winters', summer_peak_temp:45, humidity:'low', water_hardness:'very_hard', power_stability:'frequent_cuts', service_hub:false, air_quality:'poor', boost_features:['inverter','5-star energy','hot+cold','hard water','voltage protection'], penalise_features:['no inverter','no energy rating'], service_brands:['Voltas','LG','Samsung'] }
-  if (/kerala|goa|karnataka|tamil nadu|andhra/.test(l))
-    return { label:loc, climate:'Hot+humid', summer_peak_temp:38, humidity:'high', water_hardness:'moderate', power_stability:'moderate', service_hub:false, air_quality:'moderate', boost_features:['humidity resistance','5-star energy','IP rating'], penalise_features:['no humidity protection'], service_brands:['LG','Samsung','Daikin'] }
-  if (/himachal|jammu|kashmir|northeast|sikkim|arunachal/.test(l))
-    return { label:loc, climate:'Cold mountain', summer_peak_temp:28, humidity:'moderate', water_hardness:'soft', power_stability:'frequent_cuts', service_hub:false, air_quality:'good', boost_features:['heating mode','voltage protection','all-weather performance'], penalise_features:['cooling only'], service_brands:['LG','Samsung'] }
+  // State fallbacks
+  if (/rajasthan|gujarat|haryana north|up west/.test(l))
+    return { label:loc, climate:'Hot dry+cold winters', peak_temp:46, humidity:'low', water_tds:'very_hard', power:'frequent_cuts', service_hub:false, aqi:'poor', boost:['inverter','hot+cold','hard water','voltage protection'], penalty:['no inverter'], best_brands_service:['Voltas','LG','Samsung'] }
+  if (/kerala|goa|coastal karnataka|coastal andhra|coastal odisha/.test(l))
+    return { label:loc, climate:'Hot+humid tropical', peak_temp:37, humidity:'very_high', water_tds:'soft', power:'stable', service_hub:false, aqi:'good', boost:['humidity resistant','IP rating','coastal'], penalty:[], best_brands_service:['LG','Samsung','Daikin'] }
+  if (/himachal|uttarakhand|jammu|kashmir|northeast|sikkim/.test(l))
+    return { label:loc, climate:'Cold mountain', peak_temp:28, humidity:'moderate', water_tds:'soft', power:'frequent_cuts', service_hub:false, aqi:'good', boost:['heating mode','all-weather','voltage protection'], penalty:['cooling only'], best_brands_service:['LG','Samsung'] }
+  if (/up east|bihar|jharkhand|chhattisgarh|odisha/.test(l))
+    return { label:loc, climate:'Hot humid+cold winters', peak_temp:44, humidity:'high', water_tds:'hard', power:'frequent_cuts', service_hub:false, aqi:'very_poor', boost:['inverter','auto-restart','humidity','hard water'], penalty:[], best_brands_service:['Samsung','LG','Voltas'] }
+  if (/tamil nadu|andhra|telangana|karnataka/.test(l))
+    return { label:loc, climate:'Hot+humid', peak_temp:40, humidity:'high', water_tds:'hard', power:'moderate', service_hub:false, aqi:'moderate', boost:['5-star energy','humidity','hard water'], penalty:[], best_brands_service:['LG','Samsung','Voltas','Daikin'] }
   return null
 }
 
-// ─────────────────────────────────────────────
-// BRAND TRUST SCORES (India-specific)
-// ─────────────────────────────────────────────
-function getBrandFakeMultiplier(brand: string, cat: Cat): number {
-  const b = brand.toLowerCase()
-  const veryHighFake = ['boat','noise','boult','zebronics','ptron','wings','truke','hammer','mivi','crossbeats','digitek','blaupunkt budget']
-  const highFake     = ['realme','iqoo','poco','infinix','tecno','lava','micromax','vu','kodak tv','thomson']
-  const medFake      = ['redmi','xiaomi','vivo','oppo','oneplus','nothing','cmf']
-  const lowFake      = ['samsung','sony','lg','apple','bose','sennheiser','jbl premium','motorola','nokia','voltas','daikin','hitachi','whirlpool','godrej','bosch','siemens']
+// ─────────────────────────────────────────────────────────────────────────────
+// MARKETPLACE UTILITIES
+// ─────────────────────────────────────────────────────────────────────────────
 
-  if (veryHighFake.some(r => b.includes(r))) return 0.70  // Remove 30%
-  if (highFake.some(r => b.includes(r)))     return 0.80  // Remove 20%
-  if (medFake.some(r => b.includes(r)))      return 0.87  // Remove 13%
-  if (lowFake.some(r => b.includes(r)))      return 0.94  // Remove 6%
-  // Category default
-  if (cat === 'audio' || cat === 'accessory') return 0.72
-  if (cat === 'smartphone')    return 0.83
-  if (cat === 'ac' || cat === 'refrigerator' || cat === 'washing_machine') return 0.91
-  return 0.85
+const MARKETPLACES: Record<string, string> = {
+  'amazon': 'Amazon', 'flipkart': 'Flipkart', 'croma': 'Croma',
+  'reliance digital': 'Reliance Digital', 'reliance': 'Reliance Digital',
+  'vijay sales': 'Vijay Sales', 'vijaysales': 'Vijay Sales',
+  'tata cliq': 'Tata Cliq', 'tatacliq': 'Tata Cliq',
+  'meesho': 'Meesho', 'jiomart': 'JioMart', 'jio mart': 'JioMart',
+  'snapdeal': 'Snapdeal', 'paytm mall': 'Paytm Mall',
 }
 
-// ─────────────────────────────────────────────
+function isMarketplace(src: string): boolean {
+  const s = src.toLowerCase()
+  return Object.keys(MARKETPLACES).some(k => s.includes(k))
+}
+
+function normaliseMarketplace(src: string): string {
+  const s = src.toLowerCase()
+  for (const [k, v] of Object.entries(MARKETPLACES)) if (s.includes(k)) return v
+  return 'Amazon'  // Default brand sites → Amazon
+}
+
+function buildSearchUrl(marketplace: string, productName: string): string {
+  const q = encodeURIComponent(productName)
+  const m = marketplace.toLowerCase()
+  if (m.includes('amazon'))   return `https://www.amazon.in/s?k=${q}`
+  if (m.includes('flipkart')) return `https://www.flipkart.com/search?q=${q}`
+  if (m.includes('croma'))    return `https://www.croma.com/searchB?q=${q}`
+  if (m.includes('reliance')) return `https://www.reliancedigital.in/search?q=${q}`
+  if (m.includes('vijay'))    return `https://www.vijaysales.com/search/${q}`
+  if (m.includes('tata'))     return `https://www.tatacliq.com/search/?text=${q}`
+  if (m.includes('meesho'))   return `https://www.meesho.com/search?q=${q}`
+  if (m.includes('jio'))      return `https://www.jiomart.com/search/${q}`
+  return `https://www.amazon.in/s?k=${q}`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SUCCESSOR SERIES DATABASE — All electronics categories
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Map: old model keywords → newer model to recommend
+const SUCCESSOR_MAP: Array<{ old: RegExp; new_model: string; category: string }> = [
+  // SMARTPHONES
+  { old: /redmi note 1[23]\b/i, new_model: 'Redmi Note 14 5G', category: 'smartphone' },
+  { old: /redmi 1[23]\b/i,      new_model: 'Redmi 15 5G',      category: 'smartphone' },
+  { old: /samsung.?m3[34]\b/i,  new_model: 'Samsung Galaxy M35 5G', category: 'smartphone' },
+  { old: /samsung.?m1[45]\b/i,  new_model: 'Samsung Galaxy M15 5G', category: 'smartphone' },
+  { old: /narzo 60x?\b/i,       new_model: 'Realme Narzo 80 Pro 5G', category: 'smartphone' },
+  { old: /narzo 6[0-9]\b/i,     new_model: 'Realme Narzo 80 5G', category: 'smartphone' },
+  { old: /iqoo z7\b/i,          new_model: 'iQOO Z9x 5G',      category: 'smartphone' },
+  { old: /iqoo z[0-6]\b/i,      new_model: 'iQOO Z9 5G',       category: 'smartphone' },
+  { old: /nord ce 3\b/i,        new_model: 'OnePlus Nord CE 4', category: 'smartphone' },
+  { old: /poco m[56]\b/i,       new_model: 'POCO M7 Pro 5G',   category: 'smartphone' },
+  { old: /poco x[45]\b/i,       new_model: 'POCO X7 Pro',      category: 'smartphone' },
+  { old: /galaxy a3[45]\b/i,    new_model: 'Samsung Galaxy A36 5G', category: 'smartphone' },
+  { old: /galaxy a1[45]\b/i,    new_model: 'Samsung Galaxy A16 5G', category: 'smartphone' },
+  { old: /moto g7[34]\b/i,      new_model: 'Motorola Moto G96 5G', category: 'smartphone' },
+  { old: /moto g8[45]\b/i,      new_model: 'Motorola Edge 50 Neo', category: 'smartphone' },
+  { old: /realme 1[123]\b/i,    new_model: 'Realme 14 Pro 5G', category: 'smartphone' },
+  { old: /realme p[123]\b/i,    new_model: 'Realme P4 5G',     category: 'smartphone' },
+  { old: /cmf phone 1\b/i,      new_model: 'CMF Phone 2 Pro',  category: 'smartphone' },
+  { old: /vivo t[12]\b/i,       new_model: 'Vivo T4 5G',       category: 'smartphone' },
+  // LAPTOPS
+  { old: /i5.1[0-2]th|i7.1[0-2]th/i, new_model: 'Intel Core Ultra 5/7 (2024 gen)', category: 'laptop' },
+  { old: /ryzen [57].5[0-9]{3}/i,     new_model: 'AMD Ryzen 5/7 8000 series (2024)', category: 'laptop' },
+  // TVs
+  { old: /samsung.?(crystal|bu|cu)8[0-9]{3}/i, new_model: 'Samsung Crystal 4K (2024 DU series)', category: 'tv' },
+  { old: /lg.?nanocell.?202[12]/i,              new_model: 'LG NanoCell 4K (2024)',                category: 'tv' },
+  { old: /sony.?x74k\b/i,                       new_model: 'Sony Bravia X75L (2024)',              category: 'tv' },
+  // ACs
+  { old: /lg.?dual.?inverter.?202[12]/i, new_model: 'LG DUAL Inverter (2024 AI+)',  category: 'ac' },
+  { old: /daikin.?ftkf/i,                new_model: 'Daikin FTKP/FTKG (2024)',      category: 'ac' },
+  // AUDIO
+  { old: /wf.1000xm4\b/i,   new_model: 'Sony WF-1000XM5',    category: 'audio_tws' },
+  { old: /galaxy buds 2\b/i, new_model: 'Samsung Galaxy Buds 3', category: 'audio_tws' },
+  { old: /nothing ear [12]\b/i, new_model: 'Nothing Ear (a) 2024', category: 'audio_tws' },
+  { old: /cmf buds pro\b/i,  new_model: 'CMF Buds Pro 2',    category: 'audio_tws' },
+  { old: /oneplus buds 2\b/i, new_model: 'OnePlus Buds 3',   category: 'audio_tws' },
+  { old: /buds air [123]\b/i, new_model: 'Realme Buds Air 5', category: 'audio_tws' },
+  { old: /wh.1000xm[34]\b/i, new_model: 'Sony WH-1000XM5',  category: 'audio_headphone' },
+  // SMARTWATCHES
+  { old: /galaxy watch [45]\b/i, new_model: 'Samsung Galaxy Watch 7', category: 'smartwatch' },
+  { old: /cmf watch pro\b(?! 2)/i, new_model: 'CMF Watch Pro 2',     category: 'smartwatch' },
+  { old: /gtr [34]\b/i,           new_model: 'Amazfit GTR 4 Mini',   category: 'smartwatch' },
+  { old: /colorfit pro [34]\b/i,  new_model: 'Noise ColorFit Pro 5', category: 'smartwatch' },
+  // WASHING MACHINES
+  { old: /samsung.?6\.5kg.?202[12]/i, new_model: 'Samsung 7kg Front Load (2024)', category: 'washing_machine' },
+  { old: /ifb.?senator\b(?! plus)/i,  new_model: 'IFB Senator Plus 8kg (2024)',   category: 'washing_machine' },
+  // REFRIGERATORS
+  { old: /samsung.?rt[0-9]+k[0-9]{4}202[12]/i, new_model: 'Samsung Frost Free (2024 RT series)', category: 'refrigerator' },
+]
+
+function checkSuccessor(productName: string, cat: Cat): string | null {
+  for (const { old, new_model, category } of SUCCESSOR_MAP) {
+    if (category === cat && old.test(productName)) return new_model
+  }
+  return null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HELPERS
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
 function getMonthYear() { const d=new Date(); return `${d.toLocaleString('en-US',{month:'long'})} ${d.getFullYear()}` }
 function getYear() { return new Date().getFullYear() }
+
 function detectLang(q: string): string {
   if (/[\u0900-\u097F]/.test(q)) return 'Respond in Hindi. Technical terms in English.'
   if (/[\u0B80-\u0BFF]/.test(q)) return 'Respond in Tamil.'
@@ -155,661 +381,462 @@ function detectLang(q: string): string {
   if (/[\u0980-\u09FF]/.test(q)) return 'Respond in Bengali.'
   if (/[\u0C80-\u0CFF]/.test(q)) return 'Respond in Kannada.'
   if (/[\u0D00-\u0D7F]/.test(q)) return 'Respond in Malayalam.'
-  if (/\b(kaunsa|kaun sa|mein|ke andar|chahiye|konsa|wala)\b/i.test(q)) return 'Respond in Hinglish.'
+  if (/\b(kaunsa|kaun sa|mein|ke andar|chahiye|konsa|wala|kya)\b/i.test(q)) return 'Respond in Hinglish.'
   return ''
 }
+
 function getLocation(city: string, state: string): string {
-  const CITIES = new Set(['delhi','new delhi','mumbai','bombay','bangalore','bengaluru','chennai','kolkata','hyderabad','pune','ahmedabad','surat','jaipur','lucknow','noida','gurgaon','gurugram','coimbatore','kochi','indore','chandigarh','nagpur','bhopal','visakhapatnam','vizag','patna','ranchi','bhubaneswar','dehradun','agra','varanasi','amritsar','ludhiana','nashik','thane','navi mumbai'])
+  const TIER1 = new Set(['delhi','new delhi','mumbai','bombay','bangalore','bengaluru','chennai','kolkata','calcutta','hyderabad','pune','ahmedabad'])
+  const TIER2 = new Set(['surat','jaipur','lucknow','kanpur','nagpur','noida','gurgaon','gurugram','coimbatore','kochi','cochin','indore','chandigarh','bhopal','visakhapatnam','vizag','patna','bhubaneswar','dehradun','agra','varanasi','amritsar','ludhiana','nashik','thane','navi mumbai','ghaziabad','faridabad','meerut','rajkot'])
   const c = city.toLowerCase().trim()
-  if (c && CITIES.has(c)) return city
+  if (c && (TIER1.has(c) || TIER2.has(c))) return city
   if (c && c.length > 2) return city
   if (state && state.length > 2) return state
   return ''
 }
+
 function selectModel(q: string): string {
-  return /compare|versus|\bvs\b|difference|which is better|should i buy|worth it|recommend/i.test(q) ? 'gpt-5.4' : 'gpt-5.3-chat-latest'
+  return /compare|versus|\bvs\b|difference|which is better|should i buy|worth it|best for me/i.test(q)
+    ? 'gpt-5.4' : 'gpt-5.3-chat-latest'
 }
-function sanitise(p: Record<string, unknown>, i: number): AiProduct {
-  const r = Math.min(4.8, Math.max(3.0, Number(p.rating) || 4.0))
+
+function sanitise(p: Record<string,unknown>, i: number): AiProduct {
+  const r = Math.min(4.8, Math.max(3.0, Number(p.rating)||4.0))
+  const seller = normaliseMarketplace(String(p.seller||'Amazon'))
   return {
     name:            String(p.name||'').trim(),
     price:           String(p.price||'—'),
-    seller:          normaliseSeller(String(p.seller||'Amazon')),
+    seller,
     rating:          r,
     platform_rating: Math.min(5.0, Math.max(r+0.15, Number(p.platform_rating)||r+0.3)),
-    reviews:         String(p.reviews||''),
+    reviews:         String(p.reviews||'').replace(/\s*\([^)]*\)/g,'').trim(),
     badge:           String(p.badge||['Best Pick','Best Value','Budget Pick'][i]||'Top Rated'),
     reason:          String(p.reason||''),
     pros:            Array.isArray(p.pros)?p.pros.slice(0,2).map(String):[],
     cons:            Array.isArray(p.cons)?p.cons.slice(0,1).map(String):[],
     avoid_if:        String(p.avoid_if||''),
     score:           Number(p.score||0),
-    platform_prices: Array.isArray(p.platform_prices) ? p.platform_prices : [],
-    best_price:      String(p.best_price||''),
-    best_price_platform: String(p.best_price_platform||''),
+    successor_of:    p.successor_of ? String(p.successor_of) : undefined,
+    platform_prices: [],
+    best_price: '', best_price_platform: '', best_price_url: '',
   }
 }
 
-// Ensure seller field is always a known marketplace, never a brand site
-function normaliseSeller(seller: string): string {
-  const s = seller.toLowerCase()
-  // Known marketplaces — pass through with clean name
-  if (s.includes('amazon'))    return 'Amazon'
-  if (s.includes('flipkart'))  return 'Flipkart'
-  if (s.includes('croma'))     return 'Croma'
-  if (s.includes('reliance'))  return 'Reliance Digital'
-  if (s.includes('vijay'))     return 'Vijay Sales'
-  if (s.includes('tata'))      return 'Tata Cliq'
-  if (s.includes('meesho'))    return 'Meesho'
-  if (s.includes('jio'))       return 'JioMart'
-  // Everything else is a brand/manufacturer site → default to Amazon
-  return 'Amazon'
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// PRICE ENRICHMENT — Skyscanner-style lowest price finder
+// ─────────────────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────
-// OPENAI — JSON mode with full scoring prompt
-// ─────────────────────────────────────────────
-// ─────────────────────────────────────────────
-// ENRICH platform_prices FROM LIVE SERP DATA
-// Skyscanner-style: show each platform's price + direct buy link
-// ─────────────────────────────────────────────
-// Known Indian marketplaces — direct product search URLs
-const MARKETPLACE_MAP: Record<string, (q: string) => string> = {
-  'amazon':          q => `https://www.amazon.in/s?k=${q}`,
-  'flipkart':        q => `https://www.flipkart.com/search?q=${q}`,
-  'croma':           q => `https://www.croma.com/searchB?q=${q}`,
-  'reliance digital':q => `https://www.reliancedigital.in/search?q=${q}`,
-  'vijay sales':     q => `https://www.vijaysales.com/search/${q}`,
-  'vijaysales':      q => `https://www.vijaysales.com/search/${q}`,
-  'tata cliq':       q => `https://www.tatacliq.com/search/?text=${q}`,
-  'tatacliq':        q => `https://www.tatacliq.com/search/?text=${q}`,
-  'meesho':          q => `https://www.meesho.com/search?q=${q}`,
-  'jiomart':         q => `https://www.jiomart.com/search/${q}`,
-  'nykaa':           q => `https://www.nykaa.com/search/result/?q=${q}`,
-  'snapdeal':        q => `https://www.snapdeal.com/search?keyword=${q}`,
-}
-
-// Known brand/manufacturer sites — NOT marketplaces, redirect to Amazon search instead
-const BRAND_SITES = [
-  'xiaomi','mi.com','realme','oneplus','samsung india','apple india',
-  'nokia','motorola','lenovo','hp india','dell india','asus','lg india',
-  'sony india','bosch','voltas','daikin','hitachi','whirlpool','godrej',
-  'boat-lifestyle','boat','noise','official','store','brand'
-]
-
-function isMarketplace(source: string): boolean {
-  const s = source.toLowerCase()
-  return Object.keys(MARKETPLACE_MAP).some(k => s.includes(k))
-}
-
-function buildDirectUrl(platform: string, productName: string): string {
-  const q = encodeURIComponent(productName)
-  const p = platform.toLowerCase()
-  for (const [key, fn] of Object.entries(MARKETPLACE_MAP)) {
-    if (p.includes(key)) return fn(q)
-  }
-  // It's a brand site — send to Amazon search instead
-  return `https://www.amazon.in/s?k=${q}`
-}
-
-function platformDisplayName(source: string): string {
-  const s = source.toLowerCase()
-  if (s.includes('amazon'))    return 'Amazon'
-  if (s.includes('flipkart'))  return 'Flipkart'
-  if (s.includes('croma'))     return 'Croma'
-  if (s.includes('reliance'))  return 'Reliance Digital'
-  if (s.includes('vijay'))     return 'Vijay Sales'
-  if (s.includes('tata'))      return 'Tata Cliq'
-  if (s.includes('meesho'))    return 'Meesho'
-  if (s.includes('jio'))       return 'JioMart'
-  return source  // fallback
-}
-
-type SerpProd = SerpSearchResult['products'][0]
-
-function enrichWithSerpPrices(
-  aiProducts: AiProduct[],
-  serpProducts: SerpSearchResult['products']
-): AiProduct[] {
-  if (!serpProducts.length) return aiProducts
-
+function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['products']): AiProduct[] {
   return aiProducts.map(ai => {
-    // If AI gave us platform_prices — filter brand sites, keep only marketplaces
-    if (ai.platform_prices && ai.platform_prices.length > 0) {
-      const enriched = ai.platform_prices
-        .filter(pp => isMarketplace(pp.platform))  // Drop brand sites completely
-        .map(pp => ({
-          ...pp,
-          platform: platformDisplayName(pp.platform),  // Normalise name
-          url: pp.url && pp.url.startsWith('http') && isMarketplace(pp.platform)
-            ? pp.url
-            : buildDirectUrl(pp.platform, ai.name),   // Replace brand URLs with marketplace search
-        }))
+    const nameWords = ai.name.toLowerCase().split(/\s+/).filter(w=>w.length>2).slice(0,6)
 
-      // If AI's platform_prices were all brand sites (enriched is empty), use marketplace fallbacks
-      if (enriched.length === 0) {
-        const fallbacks: PlatformPrice[] = [
-          { platform:'Amazon',  price:ai.price, url:buildDirectUrl('amazon', ai.name),   availability:'in_stock' },
-          { platform:'Flipkart',price:'—',      url:buildDirectUrl('flipkart', ai.name), availability:'in_stock' },
-        ]
-        return { ...ai, seller:'Amazon', platform_prices:fallbacks, best_price:ai.price, best_price_platform:'Amazon' }
-      }
-
-      enriched.sort((a, b) => {
-        const pa = parseInt(a.price.replace(/[^\d]/g, '')) || 999999
-        const pb = parseInt(b.price.replace(/[^\d]/g, '')) || 999999
-        return pa - pb
-      })
-      const best = enriched[0]
-      return {
-        ...ai,
-        platform_prices: enriched,
-        best_price: best?.price || ai.price,
-        best_price_platform: best?.platform || ai.seller,
-      }
-    }
-
-    // Build platform_prices from SERP results by fuzzy-matching product name
-    const aiName = ai.name.toLowerCase()
-    // Extract key words (brand + model number)
-    const keywords = aiName.split(/\s+/).filter(w => w.length > 2).slice(0, 5)
-
+    // Match SERP results to this product (fuzzy keyword match, marketplace only)
     const matched = serpProducts.filter(sp => {
-      if (!sp.title || !sp.price) return false
+      if (!sp.title || !sp.price || !isMarketplace(sp.source)) return false
       const t = sp.title.toLowerCase()
-      const matchCount = keywords.filter(kw => t.includes(kw)).length
-      return matchCount >= Math.min(3, keywords.length - 1) // at least 3 keyword matches
+      const hits = nameWords.filter(w => t.includes(w)).length
+      return hits >= Math.min(3, Math.max(2, nameWords.length - 2))
     })
 
-    if (matched.length === 0) {
-      // No SERP marketplace match — always use known marketplaces, NEVER brand sites
-      // Even if AI said "Xiaomi Store" or "Samsung India", we redirect to Amazon/Flipkart
-      const marketplaceFallbacks: PlatformPrice[] = [
-        { platform:'Amazon',  price:ai.price, url:buildDirectUrl('amazon', ai.name),   availability:'in_stock' },
-        { platform:'Flipkart',price:'—',      url:buildDirectUrl('flipkart', ai.name), availability:'in_stock' },
-        { platform:'Croma',   price:'—',      url:buildDirectUrl('croma', ai.name),    availability:'in_stock' },
-      ]
-      return {
-        ...ai,
-        seller: 'Amazon',  // Override any brand site seller with a real marketplace
-        platform_prices: marketplaceFallbacks,
-        best_price: ai.price,
-        best_price_platform: 'Amazon',
-      }
-    }
-
-    // Group by MARKETPLACE platform only — skip brand/manufacturer sites
-    const byPlatform = new Map<string, SerpProd>()
+    // Build per-platform prices (lowest per marketplace)
+    const byPlatform = new Map<string, { price_str:string; price_num:number; url:string }>()
     for (const sp of matched) {
-      // Skip brand sites (Xiaomi India, Realme, Samsung Official etc.)
-      if (!isMarketplace(sp.source)) {
-        console.log(`[Prices] skipping brand site: ${sp.source}`)
-        continue
-      }
-      const key = platformDisplayName(sp.source)  // normalise key
+      const key = normaliseMarketplace(sp.source)
+      const priceNum = parseInt(sp.price.replace(/[^\d]/g,'')) || 0
       const existing = byPlatform.get(key)
-      if (!existing) {
-        byPlatform.set(key, sp)
-      } else {
-        const ep = parseInt(existing.price?.replace(/[^\d]/g,'') || '999999')
-        const sp2 = parseInt(sp.price?.replace(/[^\d]/g,'') || '999999')
-        if (sp2 < ep) byPlatform.set(key, sp)
+      if (!existing || priceNum < existing.price_num) {
+        byPlatform.set(key, {
+          price_str: sp.price,
+          price_num: priceNum,
+          url: (sp.link && isMarketplace(sp.source)) ? sp.link : buildSearchUrl(key, ai.name),
+        })
       }
     }
 
-    let platform_prices: PlatformPrice[] = Array.from(byPlatform.entries()).map(([name, sp]) => ({
-      platform: name,  // use normalised display name
-      price: sp.price || '—',
-      url: sp.link && sp.link.startsWith('http') && isMarketplace(sp.source)
-        ? sp.link
-        : buildDirectUrl(name, ai.name),  // always link to marketplace, never brand site
-      availability: 'in_stock' as const,
+    // Build platform_prices array, always include Amazon + Flipkart fallback
+    const MUST_INCLUDE = ['Amazon','Flipkart']
+    for (const m of MUST_INCLUDE) {
+      if (!byPlatform.has(m)) {
+        byPlatform.set(m, { price_str:'—', price_num:999999, url:buildSearchUrl(m, ai.name) })
+      }
+    }
+
+    // Sort by price (lowest first, unknowns at end)
+    const entries = Array.from(byPlatform.entries())
+      .sort((a,b) => {
+        if (a[1].price_num === 999999) return 1
+        if (b[1].price_num === 999999) return -1
+        return a[1].price_num - b[1].price_num
+      })
+      .slice(0,5)
+
+    const platform_prices: PlatformPrice[] = entries.map(([platform, data], idx) => ({
+      platform,
+      price: data.price_str,
+      price_numeric: data.price_num,
+      url: data.url,
+      availability: data.price_num === 999999 ? 'unknown' : 'in_stock',
+      is_lowest: idx === 0 && data.price_num !== 999999,
     }))
 
-    // Sort lowest price first (Skyscanner style)
-    platform_prices.sort((a,b) => {
-      const pa = parseInt(a.price.replace(/[^\d]/g,'')) || 999999
-      const pb = parseInt(b.price.replace(/[^\d]/g,'')) || 999999
-      return pa - pb
-    })
+    const best = platform_prices.find(p => p.is_lowest) || platform_prices[0]
 
-    // Cap at 4 platforms
-    platform_prices = platform_prices.slice(0, 4)
-
-    // If we have no SERP matches for a platform, ensure at least the AI seller is included
-    const hasSeller = platform_prices.some(p => p.platform.toLowerCase().includes(ai.seller.toLowerCase()))
-    if (!hasSeller) {
-      platform_prices.unshift({ platform:'Amazon', price:ai.price, url:buildDirectUrl('amazon',ai.name), availability:'in_stock' })
-      platform_prices = platform_prices.slice(0,4)
-      platform_prices.sort((a,b)=>{
-        const pa=parseInt(a.price.replace(/[^\d]/g,''))||999999
-        const pb=parseInt(b.price.replace(/[^\d]/g,''))||999999
-        return pa-pb
-      })
-    }
-
-    const best = platform_prices[0]
     return {
       ...ai,
       platform_prices,
-      price: best?.price || ai.price,           // update displayed price to lowest found
-      seller: best?.platform || ai.seller,       // update seller to cheapest
-      best_price: best?.price || ai.price,
+      best_price: best?.price_numeric !== 999999 ? best?.price || ai.price : ai.price,
       best_price_platform: best?.platform || ai.seller,
+      best_price_url: best?.url || buildSearchUrl('amazon', ai.name),
+      // Update displayed price/seller to cheapest found
+      price: best?.price_numeric !== 999999 ? best?.price || ai.price : ai.price,
+      seller: best?.platform || ai.seller,
     }
   })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// THE CORE AI CALL — OpenAI with full algorithm injected
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function callOpenAI(
   question: string, serpContext: string, loc: string, lang: string,
-  monthYear: string, currentYear: number, cat: Cat,
+  monthYear: string, currentYear: number, cat: Cat, weights: ScoringWeights,
   model: string, apiKey: string
 ): Promise<{ answer: string; products: unknown[] }> {
 
   const cityProfile = getCityProfile(loc)
   const yr = currentYear
 
-  // ── Build city context block ──
   const cityBlock = cityProfile ? `
-═══════════════════════════════════════════
-LOCATION PROFILE: ${cityProfile.label.toUpperCase()}
-═══════════════════════════════════════════
-Climate: ${cityProfile.climate}
-Peak summer temp: ${cityProfile.summer_peak_temp}°C
-Humidity: ${cityProfile.humidity}
-Water hardness: ${cityProfile.water_hardness} (TDS matters for AC/washing machine/purifier)
-Power stability: ${cityProfile.power_stability}
-Service hub: ${cityProfile.service_hub ? 'Yes — major service centres present' : 'No — limited centres, pan-India service critical'}
-Air quality: ${cityProfile.air_quality}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LOCATION: ${cityProfile.label.toUpperCase()}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Climate: ${cityProfile.climate} (peak ${cityProfile.peak_temp}°C)
+Humidity: ${cityProfile.humidity} | Water TDS: ${cityProfile.water_tds}
+Power stability: ${cityProfile.power} | Air quality: ${cityProfile.aqi}
+Service centre availability: ${cityProfile.service_hub ? 'Major hub — all brands present' : 'Limited — pan-India service network critical'}
+Trusted service brands in ${cityProfile.label}: ${cityProfile.best_brands_service.join(', ')}
 
-CITY SCORING BONUS (+3 to +8 pts each):
-  Boost products that have: ${cityProfile.boost_features.join(' | ')}
-CITY SCORING PENALTY (-3 to -8 pts each):
-  Penalise products missing: ${cityProfile.penalise_features.join(' | ')}
-Best after-sales brands in ${cityProfile.label}: ${cityProfile.service_brands.join(', ')}
+LOCATION SCORING ADJUSTMENTS:
++4 pts each if product has: ${cityProfile.boost.join(' | ')}
+-4 pts each if product lacks: ${cityProfile.penalty.join(' | ')}
+-5 pts if brand has NO authorised service centre in/near ${cityProfile.label}
+` : (loc ? `Location: ${loc} — apply relevant India regional adjustments for climate, power, water quality.` : `No specific location — recommend for all-India use.`)
 
-If product DOES NOT have service centre in ${cityProfile.label} area → -5 pts on service score.
-` : (loc ? `Location: ${loc} — apply best-fit regional adjustments for Indian climate/power/water.` : '')
-
-  const systemPrompt = `You are ProductRating.in, India's most trusted electronics scoring engine. Today: ${monthYear}.
+  const systemPrompt = `You are ProductRating.in — India's most trusted electronics scoring engine. Today: ${monthYear}.
 ${lang ? lang + '\n' : ''}
 
-YOUR TASK:
-1. Generate a candidate list of 8–12 relevant electronics products for this query
-2. Score EACH candidate using the full algorithm below
-3. Select the TOP 3 by score
-4. Return the result as JSON
+══════════════════════════════════════════════════════════════════
+PRODUCTRATING ALGORITHM v4.0 — ${ALGORITHM_VERSION}
+Target: Find the 3 BEST electronics products for this exact query
+══════════════════════════════════════════════════════════════════
+
+PHASE 1 — CANDIDATE GENERATION (8–15 products)
+───────────────────────────────────────────────
+Generate a candidate pool from:
+  A) Live SERP data provided below (ground truth for current Indian prices)
+  B) Your own knowledge of Indian electronics market as of ${monthYear}
+Include DIVERSE candidates — different brands, price points, positioning.
+Do NOT pre-select — generate broadly, let scoring pick the best.
+
+PHASE 2 — MULTI-FACTOR SCORING (max 100 pts)
+─────────────────────────────────────────────
+Score each candidate. Weights tuned for this category (${cat}):
+
+[F1] RELEVANCE: ${weights.relevance} pts max
+  • Exact match (right category + budget + use case + specs): full score
+  • Minor mismatch (<10% budget gap, minor spec gap): 70% of score
+  • Partial match: 40% of score
+  • Wrong category → EXCLUDE (0 pts, skip)
+
+[F2] RECENCY: ${weights.recency} pts max
+  • ${yr} launch = ${weights.recency} pts (current year = full)
+  • ${yr-1} launch = ${Math.round(weights.recency*0.85)} pts
+  • ${yr-2} launch = ${Math.round(weights.recency*0.55)} pts
+  • ${yr-3} launch = ${Math.round(weights.recency*0.25)} pts
+  • Older = 0 pts — UNLESS Evergreen Exception applies
+
+  ▸ EVERGREEN EXCEPTION (max ${Math.round(weights.recency*0.65)} pts):
+    Older product may score if ALL 3 true:
+    ✓ Still sold NEW on Amazon.in/Flipkart (not just resellers)
+    ✓ 30,000+ combined reviews across all platforms
+    ✓ Specs still genuinely competitive at that price in ${yr}
+
+  ▸ SUCCESSOR UPGRADE RULE (MANDATORY):
+    If any candidate is from 2022–2023 AND its series has launched a ${yr}/${yr-1}
+    successor → REPLACE it with the successor in your candidate list.
+    Inherit the series popularity: give successor +5 pts recency bonus.
+    In "successor_of" field: name the older model that was popular.
+    This ensures we ALWAYS recommend current models, not outdated ones.
+
+    VERIFIED SUCCESSOR PAIRS (apply across all categories):
+    Phones: Redmi Note 12/13→Note 14/15 | M33/M34→M35/M55 | Narzo 60x→Narzo 80
+            iQOO Z7→Z9/Z9x | Nord CE 3→CE 4 | POCO M5/M6→M7 | A34→A36 | Moto G73→G96
+    Laptops: 12th gen i5/i7→Core Ultra 5/7 | Ryzen 5xxx→Ryzen 8000 series
+    TVs: Samsung BU/CU 2022→DU 2024 | LG NanoCell 2022→2024 | Sony X74K→X75L
+    ACs: LG Dual Inverter 2021/2022→2024 gen | Daikin FTKF→FTKP 2024
+    Audio: WF-1000XM4→XM5 | Galaxy Buds 2→Buds 3 | Nothing Ear 2→Ear (a) | CMF Buds Pro→Pro 2
+    Watches: Galaxy Watch 4/5→Watch 7 | CMF Watch Pro→Pro 2 | GTR 3→GTR 4
+
+[F3] CROSS-PLATFORM REVIEW VOLUME: ${weights.review_volume} pts max
+  Aggregate reviews from ALL Indian platforms (use estimates if exact unavailable):
+    Amazon.in (weight ×1.00) + Flipkart (×0.90) + Croma (×0.95) +
+    Reliance Digital (×0.95) + Vijay Sales (×0.95) + Tata Cliq (×0.90) +
+    Meesho/JioMart (×0.60 — high fake risk)
+
+  Combined weighted count → score:
+    60,000+  → ${weights.review_volume} pts (very high confidence)
+    30,000–59,999 → ${Math.round(weights.review_volume*0.82)} pts
+    12,000–29,999 → ${Math.round(weights.review_volume*0.62)} pts
+    4,000–11,999  → ${Math.round(weights.review_volume*0.40)} pts
+    1,000–3,999   → ${Math.round(weights.review_volume*0.20)} pts
+    <1,000        → 0 pts (insufficient India market data)
+
+  FAKE REVIEW PENALTY (deduct from F3 score):
+    -5 pts: >85% 5-star with almost no negative reviews (impossible pattern)
+    -5 pts: Spike of 8,000+ reviews in launch week 1 (paid campaign)
+    -4 pts: Brand known for aggressive paid review campaigns
+    -3 pts: Single-review-account pattern detected in review breakdown
+
+[F4] PR SCORE (Fake-Adjusted Weighted Rating): ${weights.pr_score} pts max
+  Step A: Weighted avg rating = Σ(platform_rating × weight × review_count) ÷ Σ(weight × review_count)
+          This is "platform_rating" — what Amazon/Flipkart show combined
+  
+  Step B: Subtract fake inflation → PR Score ("rating" field):
+    • Samsung/Sony/LG/Apple/Motorola flagship/Bose/Sennheiser: subtract 0.10–0.15
+    • Redmi/Vivo/OnePlus/Realme flagship/iQOO/Nothing: subtract 0.20–0.30
+    • Budget Realme/Redmi/POCO/Infinix/Tecno: subtract 0.30–0.40
+    • boat/Noise/Boult/Zebronics/PTron/Truke: subtract 0.45–0.65
+    • Launch-week spike brands: additional −0.15
+  
+  PR Score → score:
+    4.5+    → ${weights.pr_score} pts
+    4.2–4.49 → ${Math.round(weights.pr_score*0.82)} pts
+    4.0–4.19 → ${Math.round(weights.pr_score*0.60)} pts
+    3.7–3.99 → ${Math.round(weights.pr_score*0.35)} pts
+    <3.7     → 0 pts
+
+[F5] VALUE FOR MONEY: ${weights.value_for_money} pts max
+  Specs/features delivered per rupee vs category average in India:
+    Exceptional value (specs >> peers at same price): ${weights.value_for_money} pts
+    Good value (competitive specs for price): ${Math.round(weights.value_for_money*0.75)} pts
+    Average (fair): ${Math.round(weights.value_for_money*0.45)} pts
+    Poor (overpriced for specs): ${Math.round(weights.value_for_money*0.15)} pts
+
+[F6] INDIA SERVICE & WARRANTY: ${weights.service_warranty} pts max
+  After-sales for user's location (${loc || 'general India'}):
+    Authorised service centre in/near user city + 2yr+ warranty: ${weights.service_warranty} pts
+    Service in city + standard 1yr warranty: ${Math.round(weights.service_warranty*0.65)} pts
+    Service requires travel/courier: ${Math.round(weights.service_warranty*0.3)} pts
+    Poor India service network: 0 pts
 
 ${cityBlock}
 
-══════════════════════════════════════════════════════════
-PRODUCTRATING SCORING ALGORITHM v3  (max 100 points)
-══════════════════════════════════════════════════════════
+TOTAL SCORE = F1+F2+F3+F4+F5+F6 (max 100).
+Tiebreaker: higher F4 (PR Score) wins.
+Select TOP 3 by score.
 
-─── FACTOR 1: RELEVANCE (0–30 pts) ───────────────────
-Score how well the product matches the EXACT query:
-  30 pts — Perfect match: right category, right budget range, right use case, right specs for query
-  22 pts — Strong match: right category, slightly outside budget (<10%) or minor spec gap
-  14 pts — Partial match: right category, significant spec/budget mismatch
-   6 pts — Weak match: adjacent category (e.g. washing machine when asked AC)
-   0 pts — Wrong category entirely → EXCLUDE from results
-
-─── FACTOR 2: RECENCY (0–20 pts) ─────────────────────
-Based on launch year in India:
-  20 pts — Launched in ${yr} (this year) — cutting-edge
-  16 pts — Launched in ${yr-1} — current gen
-  10 pts — Launched in ${yr-2} — one gen behind
-   5 pts — Launched in ${yr-3} — two gens behind
-   0 pts — Launched ${yr-4} or earlier → SKIP unless EVERGREEN EXCEPTION
-
-EVERGREEN EXCEPTION (score up to 12 pts recency):
-  A product older than ${yr-2} MAY be included ONLY if ALL 3 conditions met:
-  ✓ Still listed as NEW on Amazon.in or Flipkart (first-party, not grey market)
-  ✓ 35,000+ combined reviews across Amazon + Flipkart + Croma
-  ✓ Specifications still genuinely competitive vs ${yr} alternatives at its price
-  Examples that qualify: Redmi Note 13, Samsung Galaxy A34 (large review base, active stock)
-  Examples to SKIP: Samsung M33 (M35 replaced it), Narzo 60x (80 series out), Redmi Note 12
-
-SUCCESSOR UPGRADE RULE (CRITICAL — prevents stale outdated recommendations):
-  When a candidate product from 2022-2023 has high reviews but a NEWER model in the same
-  series has launched — ALWAYS recommend the newer successor, NOT the old one.
-
-  Algorithm:
-    1. Identify the series (e.g. "Redmi Note", "Samsung Galaxy A", "Narzo")
-    2. Check: has a newer model in this series launched in ${yr} or ${yr-1}?
-    3. If YES → recommend the newer model instead
-    4. In "reason" mention: "Upgraded from the popular [older model] (Xk reviews)"
-    5. Award +5 POPULARITY INHERITANCE BONUS to successor if older sibling had 30k+ reviews
-
-  Required upgrades for ${yr} — ALL ELECTRONICS CATEGORIES:
-
-  SMARTPHONES:
-    Redmi Note 12/13 → Redmi Note 14/15 5G
-    Samsung Galaxy M33/M34 → Samsung Galaxy M35/M55 5G
-    Narzo 60x/60 → Narzo 80/80 Pro 5G
-    iQOO Z7/Z7 Pro → iQOO Z9/Z9x/Z10
-    OnePlus Nord CE 3 → Nord CE 4/4 Lite
-    Redmi 12/12C → Redmi 14/15 5G
-    Galaxy A34/A14 → Galaxy A35/A36 5G
-    Moto G73/G84 → Moto G96/G85 5G
-    POCO M5/M6 → POCO M7/X7
-    Realme 11/11x → Realme 13/13x 5G
-    Vivo T2/T2x → Vivo T3/T3x 5G
-    CMF Phone 1 → CMF Phone 2 Pro
-
-  LAPTOPS:
-    Intel 12th gen laptops → Intel Core Ultra (Meteor Lake/Arrow Lake) or AMD Ryzen 8000 series
-    Lenovo IdeaPad 3 (older) → Lenovo IdeaPad Slim 3/5 (2024/2025 gen)
-    HP Pavilion 15 (older i5-12th) → HP Pavilion 15 (Core Ultra 5/7 2024)
-    Dell Inspiron 15 (older) → Dell Inspiron 15 (2024 gen Core Ultra)
-    ASUS VivoBook 15 (older) → ASUS VivoBook 16X (2024 gen)
-    HP Victus 15 (RTX 3050) → HP Victus 15 (RTX 4060 2024)
-    Acer Aspire 7 (older) → Acer Aspire 7/Swift (2024 gen)
-
-  TVs:
-    Samsung Crystal 4K (2022) → Samsung Crystal 4K (2024 BU/CU series)
-    LG NanoCell 2022 → LG NanoCell/QNED 2024
-    Sony Bravia X74K → Sony Bravia X74L/X75L (2024)
-    Mi/Xiaomi TV 5X → Xiaomi TV A2/X Pro (2024)
-    OnePlus TV Y1S → OnePlus TV 43/50/55 Y3 (2024)
-    Realme SLED/4K → Realme Smart TV 4K 2024
-
-  AIR CONDITIONERS:
-    LG Dual Inverter (2021/2022 models) → LG DUAL Inverter (2024 gen with AI+)
-    Daikin FTKF (2022) → Daikin FTKP/FTKG (2024)
-    Voltas 183V (older) → Voltas Inverter (2024 5-star series)
-    Samsung WindFree (2022) → Samsung WindFree (2024 AI series)
-    Hitachi Kaze (older) → Hitachi Frost Wash (2024)
-    Blue Star (older 3-star) → Blue Star 5-star inverter (2024)
-
-  REFRIGERATORS:
-    Samsung 3-door (2022 RT models) → Samsung Frost Free (2024 RT/RF series)
-    LG Single/Double door (2021) → LG (2024 gen with Wi-Fi/AI)
-    Whirlpool Intellifresh (older) → Whirlpool Intellifresh (2024 gen)
-    Haier (2022 models) → Haier (2024 HRB series)
-
-  WASHING MACHINES:
-    Samsung 6.5kg front load (2022) → Samsung 7kg/8kg (2024 AI wash series)
-    LG FHM (older) → LG FHP/AI Direct Drive (2024)
-    IFB 6kg (older Senator) → IFB 7kg/8kg (2024 Executive/Senator Plus)
-    Bosch 6kg (2022) → Bosch 7kg/8kg (2024 Series 4/6)
-
-  AUDIO (Earbuds/Headphones):
-    Sony WF-1000XM4 → Sony WF-1000XM5
-    Samsung Galaxy Buds 2 → Galaxy Buds 2 Pro / Galaxy Buds 3
-    Nothing Ear 1/2 → Nothing Ear (a)/Ear 2 (2024)
-    CMF Buds/Buds Pro → CMF Buds Pro 2 (2024)
-    OnePlus Buds 2 → OnePlus Buds 3/Pro 2
-    boat Airdopes 141 (older) → boat Airdopes 141 (2024 gen v2)
-    Realme Buds Air 3 → Realme Buds Air 5/6
-
-  SMARTWATCHES:
-    Samsung Galaxy Watch 4/5 → Galaxy Watch 6/7/FE
-    Nothing Watch 1 → Nothing Watch Pro (2024)
-    CMF Watch Pro → CMF Watch Pro 2 (2024)
-    Amazfit GTR 3/GTS 3 → Amazfit GTR 4/GTR Mini (2024)
-    Noise ColorFit Pro 4 → Noise ColorFit Caliber/Pro 5 (2024)
-    boAt Wave (older) → boAt Wave Sigma/Ripple (2024)
-
-  GENERAL RULE FOR ALL CATEGORIES:
-    Any product with "2022" or "2023" model year where brand has released 2024/2025 version → upgrade
-    Key signal: model number increment (X → X+1), gen indicator, or year in model name
-
-  NEVER recommend a product when its direct successor exists at the same price bracket.
-  If the newer model has fewer reviews, mention this: "New model with fewer reviews but better specs"
-
-─── FACTOR 3: CROSS-PLATFORM REVIEW VOLUME (0–20 pts) ──
-AGGREGATE total reviews from ALL Indian platforms:
-  Amazon.in       × 1.00 weight
-  Flipkart        × 0.90 weight
-  Croma           × 0.95 weight
-  Reliance Digital × 0.95 weight
-  Vijay Sales     × 0.95 weight
-  Tata Cliq       × 0.90 weight
-  Meesho / JioMart × 0.60 weight (high fake risk)
-
-Report combined total as: "48k" or "1.2L" (lakh) — NEVER mention platform names in the reviews field. Just the number.
-
-Combined weighted review count:
-  50,000+ → 20 pts
-  25,000–49,999 → 16 pts
-  10,000–24,999 → 12 pts
-   3,000–9,999 →  8 pts
-     500–2,999 →  4 pts
-        <500   →  0 pts
-
-FAKE REVIEW PENALTY (deduct from review pts):
-  Pattern A: >85% 5-star ratings, almost no 1-2 star → -4 pts (statistically impossible)
-  Pattern B: Sudden spike of 10,000+ reviews in launch week 1 → -4 pts
-  Pattern C: Reviewer accounts with only 1 total review across Amazon/Flipkart → -3 pts
-  Pattern D: "Received product for free/discount in exchange for review" >15% → -4 pts
-  Pattern E: Brand known for aggressive paid review campaigns (boat/Noise/Zebronics/PTron) → -3 pts
-
-─── FACTOR 4: WEIGHTED PLATFORM RATING → PR SCORE (0–15 pts) ──
-Step A — Compute weighted average:
-  Σ(platform_rating × platform_weight × platform_review_count) ÷ Σ(platform_weight × platform_review_count)
-  This is the "platform_rating" you report.
-
-Step B — Subtract fake inflation to get PR Score:
-  Established brands (Samsung/Sony/LG/Apple/Motorola/Voltas/LG): subtract 0.10–0.20
-  Mid-tier (Redmi/Realme/iQOO/Vivo/OnePlus/Nothing/CMF):        subtract 0.25–0.35
-  High-risk (boat/Noise/Boult/Zebronics/PTron/Truke/Wings):      subtract 0.45–0.65
-  Additional: launch-week spike brands get extra -0.15
-
-  PR Score = weighted avg − fake adjustments (this is "rating" field, always < platform_rating)
-
-Score from PR Score:
-  4.5+ → 15 pts
-  4.2–4.49 → 12 pts
-  4.0–4.19 →  8 pts
-  3.7–3.99 →  5 pts
-  <3.7 → 0 pts
-
-─── FACTOR 5: VALUE FOR MONEY (0–10 pts) ─────────────
-Compare specs delivered per rupee vs category average in India:
-  10 pts — Exceptional value: specs significantly better than peers at same price
-   7 pts — Good value: competitive specs for the price
-   4 pts — Average: fair but not outstanding
-   1 pt  — Poor value: clearly overpriced for specs offered
-   0 pts — Premium priced but specs don't justify it for Indian budget segment
-
-─── FACTOR 6: INDIA SERVICE & WARRANTY (0–5 pts) ──────
-After-sales reliability for the specific city/region:
-  5 pts — Authorised service centre within 10km in user's city/region, 2yr+ warranty
-  3 pts — Service centre in same city, standard 1yr warranty
-  1 pt  — Limited service, must courier device (common in Tier-2/3)
-  0 pts — No reliable India service network
-  Note: For ${loc || 'general India'}, adjust based on city profile above.
-
-══════════════════════════════════════════════════════════
-TOTAL SCORE = F1+F2+F3+F4+F5+F6 (max 100)
-Select TOP 3 by score. Tiebreaker: higher F4 (PR Score) wins.
-══════════════════════════════════════════════════════════
-
-RESPOND WITH VALID JSON ONLY — absolutely no text outside JSON.
-Schema:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PHASE 3 — RESPONSE FORMAT (JSON ONLY, no other text)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {
-  "answer": "2-3 sentences: specific buying advice for ${loc || 'India'}. Mention key tradeoff and why #1 wins.",
-  "scoring_summary": "One sentence describing how you applied the algorithm (for transparency)",
+  "answer": "2-3 sentences: specific buying advice for ${loc||'India'}. State key tradeoff. Mention why #1 wins.",
   "products": [
     {
-      "name": "Full Product Name with storage/variant/colour",
+      "name": "Full Product Name with variant/storage/colour",
       "price": "₹XX,XXX",
       "seller": "Amazon",
       "rating": 4.2,
       "platform_rating": 4.6,
-      "reviews": "48k",
+      "reviews": "52k",
       "badge": "Best Pick",
-      "score": 84,
-      "reason": "Why this ranks #1 for this exact query in ${loc || 'India'} — mention algorithm factors",
-      "platform_prices": [
-        {"platform":"Amazon","price":"₹38,990","url":"https://www.amazon.in/s?k=LG+1.5+Ton+5+Star+AI+Dual+Inverter+AC","availability":"in_stock"},
-        {"platform":"Flipkart","price":"₹36,490","url":"https://www.flipkart.com/search?q=LG+1.5+Ton+5+Star+AI+Dual+Inverter+AC","availability":"in_stock"},
-        {"platform":"Croma","price":"₹39,990","url":"https://www.croma.com/searchB?q=LG+AC","availability":"in_stock"}
-      ],
-      "best_price": "₹36,490",
-      "best_price_platform": "Flipkart",
-      "pros": ["Specific factual pro 1 relevant to ${loc || 'India'}", "Specific factual pro 2"],
-      "cons": ["Main real complaint from actual buyer reviews"],
-      "avoid_if": "Specific type of buyer who should not choose this"
+      "score": 87,
+      "reason": "Why #1 for this query in ${loc||'India'} — cite specific algorithm factors",
+      "pros": ["Specific factual pro relevant to ${loc||'India'}", "Specific factual pro 2"],
+      "cons": ["Main real complaint from Indian buyer reviews"],
+      "avoid_if": "Specific type of buyer who should not buy this",
+      "successor_of": null
     },
-    { "name": "...", "price": "...", "seller": "...", "rating": 4.0, "platform_rating": 4.4, "reviews": "...", "badge": "Best Value", "score": 76, "reason": "...", "pros": ["...","..."], "cons": ["..."], "avoid_if": "..." },
-    { "name": "...", "price": "...", "seller": "...", "rating": 3.8, "platform_rating": 4.2, "reviews": "...", "badge": "Budget Pick", "score": 68, "reason": "...", "pros": ["...","..."], "cons": ["..."], "avoid_if": "..." }
+    { "name":"Second Product","price":"₹XX,XXX","seller":"Flipkart","rating":4.0,"platform_rating":4.4,"reviews":"31k","badge":"Best Value","score":79,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null },
+    { "name":"Third Product","price":"₹XX,XXX","seller":"Amazon","rating":3.8,"platform_rating":4.2,"reviews":"18k","badge":"Budget Pick","score":71,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null }
   ]
 }`
 
   const userMsg = `Question: ${question}` +
-    (loc ? `\nUser location: ${loc}` : '') +
+    (loc ? `\nUser location: ${loc}` : '\nNo location provided — recommend for all-India use') +
     (serpContext
-      ? `\n\nLive product data from Indian platforms (ground truth for current price and availability):\n${serpContext}\n\nStep 1: Generate 8-12 candidate products for this query (combine live data + your knowledge of Indian electronics market as of ${monthYear}).\nStep 2: Score EACH candidate using the full algorithm.\nStep 3: Return top 3 by score.`
-      : `\n\nNo live data. Use your knowledge of Indian electronics market as of ${monthYear}.\nStep 1: Generate 8-12 candidate products.\nStep 2: Score each using the full algorithm.\nStep 3: Return top 3.`)
+      ? `\n\nLive data from Indian shopping platforms (use as ground truth for current pricing and availability):\n${serpContext}\n\nStep 1: Generate 8–15 candidates combining live data + your India market knowledge.\nStep 2: Score each using the full algorithm.\nStep 3: Apply successor upgrades.\nStep 4: Return top 3 as JSON.`
+      : `\n\nNo live shopping data. Use your knowledge of Indian electronics market as of ${monthYear}.\nStep 1: Generate 8–15 candidates.\nStep 2: Score each. Step 3: Apply successor upgrades. Step 4: Return top 3 as JSON.`)
 
   for (let attempt = 0; attempt <= 2; attempt++) {
     try {
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        method:'POST',
+        headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
         body: JSON.stringify({
           model,
-          messages: [{ role:'system', content:systemPrompt }, { role:'user', content:userMsg }],
+          messages:[{role:'system',content:systemPrompt},{role:'user',content:userMsg}],
           max_tokens: 2500,
           temperature: 0.25,
-          response_format: { type: 'json_object' },
+          response_format: { type:'json_object' },
         }),
       })
-      if (res.status === 429) { if (attempt<2) await new Promise(r=>setTimeout(r,1000*(attempt+1))); continue }
+      if (res.status===429) { if(attempt<2) await new Promise(r=>setTimeout(r,1000*(attempt+1))); continue }
       const raw = await res.text()
       console.log(`[OpenAI:${model}] status=${res.status} len=${raw.length}`)
-      if (!res.ok) { console.error('[OpenAI] err:', raw.slice(0,300)); return { answer:'', products:[] } }
+      if (!res.ok) { console.error('[OpenAI]',raw.slice(0,300)); return {answer:'',products:[]} }
       const d = JSON.parse(raw)
-      const content: string = d?.choices?.[0]?.message?.content||'{}'
-      console.log(`[OpenAI] preview: ${content.slice(0,250)}`)
+      const content:string = d?.choices?.[0]?.message?.content||'{}'
+      console.log(`[OpenAI] preview: ${content.slice(0,200)}`)
       const parsed = JSON.parse(content)
-      const prods = Array.isArray(parsed.products) ? parsed.products : []
-      console.log(`[OpenAI] products: ${prods.length}, scoring_summary: ${parsed.scoring_summary||'n/a'}`)
-      return { answer: String(parsed.answer||''), products: prods }
+      const prods = Array.isArray(parsed.products)?parsed.products:[]
+      console.log(`[OpenAI] products:${prods.length}`)
+      return { answer:String(parsed.answer||''), products:prods }
     } catch(e) {
-      console.error(`[OpenAI] attempt ${attempt+1}:`, String(e))
-      if (attempt<2) await new Promise(r=>setTimeout(r,1000))
+      console.error(`[OpenAI] attempt ${attempt+1}:`,String(e))
+      if(attempt<2) await new Promise(r=>setTimeout(r,1000))
     }
   }
-  return { answer:'', products:[] }
+  return {answer:'',products:[]}
 }
 
-// ── SARVAM FALLBACK ──
-async function callSarvam(q: string, serpCtx: string, loc: string, lang: string, monthYear: string, apiKey: string): Promise<{ answer: string; products: unknown[] }> {
+// ─────────────────────────────────────────────────────────────────────────────
+// SARVAM FALLBACK
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function callSarvam(q:string, ctx:string, loc:string, lang:string, monthYear:string, apiKey:string): Promise<{answer:string;products:unknown[]}> {
   const sp = `You are ProductRating.in electronics advisor. Today: ${monthYear}.${lang?' '+lang:''}${loc?' Location: '+loc+'.':''}
-Generate 6-8 candidate electronics products for this query. Score each:
-  Relevance(30) + Recency(20) + Reviews across Amazon+Flipkart+Croma combined(20) + Weighted rating minus fake removal(15) + Value for money(10) + India service(5) = 100pts
-Select top 3 by score. Write 2 sentences advice then ---PRODUCTS--- then JSON array of 3 with: name,price,seller,rating(fake-removed),platform_rating(weighted avg),reviews(combined),badge,score,reason,pros(2),cons(1),avoid_if`
-  const um = `Question: ${q}${loc?' Location: '+loc:''}${serpCtx?'\n\nLive prices:\n'+serpCtx:''}`
-  for (let attempt=0;attempt<=3;attempt++) {
+Generate 8 candidate electronics products. Score each /100: Relevance(30)+Recency(20)+Cross-platform reviews across Amazon+Flipkart+Croma(20)+Fake-adjusted rating(15)+Value(10)+Service(5).
+Replace any 2022/2023 product with its 2024/2025 successor if available.
+Select top 3. Output: 2 sentences advice then ---PRODUCTS--- then JSON array of 3 with:
+name, price, seller(marketplace only), rating(PR Score after fake removal), platform_rating(weighted avg), reviews(combined count), badge, score, reason, pros(2), cons(1), avoid_if, successor_of(null or old model name)`
+  const um = `Q: ${q}${loc?' Location: '+loc:''}${ctx?'\n\nLive prices:\n'+ctx:''}`
+  for (let a=0;a<=3;a++) {
     try {
-      const res = await fetch('https://api.sarvam.ai/v1/chat/completions', {
-        method:'POST', headers:{'Content-Type':'application/json','api-subscription-key':apiKey},
-        body:JSON.stringify({ model:'sarvam-m', messages:[{role:'system',content:sp},{role:'user',content:um}], max_tokens:2000, temperature:0.25 }),
+      const res = await fetch('https://api.sarvam.ai/v1/chat/completions',{
+        method:'POST',headers:{'Content-Type':'application/json','api-subscription-key':apiKey},
+        body:JSON.stringify({model:'sarvam-m',messages:[{role:'system',content:sp},{role:'user',content:um}],max_tokens:2000,temperature:0.25}),
       })
-      if (res.status===429) { if(attempt<3) await new Promise(r=>setTimeout(r,Math.min(1000*Math.pow(2,attempt),8000))); continue }
-      if (!res.ok) return { answer:'', products:[] }
+      if (res.status===429){if(a<3) await new Promise(r=>setTimeout(r,Math.min(1000*Math.pow(2,a),8000)));continue}
+      if (!res.ok) return {answer:'',products:[]}
       const d = JSON.parse(await res.text())
-      let c: string = d?.choices?.[0]?.message?.content||''
+      let c:string=d?.choices?.[0]?.message?.content||''
       let prev=''
-      while (prev!==c) { prev=c; c=c.replace(/<think>[\s\S]*?<\/think>/gi,'') }
-      c = c.replace(/<\/?think[^>]*>/gi,'').trim()
+      while(prev!==c){prev=c;c=c.replace(/<think>[\s\S]*?<\/think>/gi,'')}
+      c=c.replace(/<\/?think[^>]*>/gi,'').trim()
       const si=c.search(/---PRODUCTS---/i)
       const answer=(si!==-1?c.slice(0,si):c.slice(0,400)).replace(/\*\*(.*?)\*\*/g,'$1').trim()
       const jp=si!==-1?c.slice(si+15):c
-      const st=jp.indexOf('['); if(st===-1) return { answer, products:[] }
+      const st=jp.indexOf('[');if(st===-1)return{answer,products:[]}
       let depth=0,end=-1
       for(let i=st;i<jp.length;i++){if(jp[i]==='[')depth++;else if(jp[i]===']'){depth--;if(depth===0){end=i;break}}}
-      if(end===-1) return { answer, products:[] }
-      try { return { answer, products:JSON.parse(jp.slice(st,end+1)) } } catch { return { answer, products:[] } }
-    } catch(e) { console.error(`[Sarvam] attempt ${attempt+1}:`,String(e)); if(attempt<3) await new Promise(r=>setTimeout(r,1000)) }
+      if(end===-1)return{answer,products:[]}
+      try{return{answer,products:JSON.parse(jp.slice(st,end+1))}}catch{return{answer,products:[]}}
+    } catch(e){console.error(`[Sarvam] attempt ${a+1}:`,String(e));if(a<3) await new Promise(r=>setTimeout(r,1000))}
   }
-  return { answer:'', products:[] }
+  return{answer:'',products:[]}
 }
 
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN ENTRY POINT
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
 export async function runSearch(
-  question: string, city='', state='',
-  sarvamKey: string, openaiKey?: string
+  question:string, city='', state='',
+  sarvamKey:string, openaiKey?:string
 ): Promise<SearchResult> {
 
-  if (!isElectronics(question)) return { answer:'', aiProducts:[], serpProducts:[], relatedSearches:[], isOutOfScope:true }
+  // Scope gate
+  if (!isElectronics(question)) {
+    return { answer:'', aiProducts:[], serpProducts:[], relatedSearches:[], isOutOfScope:true, algorithm_version:ALGORITHM_VERSION }
+  }
 
   const cacheKey = `${question.toLowerCase().trim()}|${city}|${state}`
   const hit = cache.get(cacheKey)
   if (hit && Date.now()-hit.ts<CACHE_TTL) { console.log('[Search] cache hit'); return hit.result }
 
-  const monthYear = getMonthYear()
-  const currentYear = getYear()
-  const lang = detectLang(question)
-  const loc = getLocation(city, state)
-  const model = selectModel(question)
-  const cat = detectCat(question)
+  const monthYear=getMonthYear(), currentYear=getYear()
+  const lang=detectLang(question)
+  const loc=getLocation(city,state)
+  const model=selectModel(question)
+  const cat=detectCat(question)
+  const weights=getCategoryWeights(cat)
 
-  console.log(`[Search] cat=${cat} model=${model} loc=${loc||'none'}`)
+  console.log(`[Search] cat=${cat} model=${model} loc="${loc||'India-wide'}"`)
 
-  let serpResult: SerpSearchResult = { products:[], relatedSearches:[], query:question }
-  try { serpResult = await searchGoogleShopping(question); console.log(`[SERP] ${serpResult.products.length}`) }
-  catch(e) { console.error('[SERP]:',String(e)) }
-  const serpContext = buildProductContext(serpResult)
+  // SERP — live prices from Google Shopping
+  let serpResult:SerpSearchResult={products:[],relatedSearches:[],query:question}
+  try { serpResult=await searchGoogleShopping(question); console.log(`[SERP] ${serpResult.products.length}`) }
+  catch(e){console.error('[SERP]:',String(e))}
+  const serpContext=buildProductContext(serpResult)
 
-  let answer='', rawProducts: unknown[]=[]
+  // AI recommendation engine
+  let answer='', rawProducts:unknown[]=[]
 
   if (openaiKey) {
-    const r = await callOpenAI(question, serpContext, loc, lang, monthYear, currentYear, cat, model, openaiKey)
+    const r=await callOpenAI(question,serpContext,loc,lang,monthYear,currentYear,cat,weights,model,openaiKey)
     answer=r.answer; rawProducts=r.products
-    if ((!answer||rawProducts.length===0) && model!=='gpt-5.4') {
+    // Auto-upgrade: if fast model returned nothing, retry with deep model
+    if((!answer||rawProducts.length===0)&&model!=='gpt-5.4'){
       console.log('[Search] upgrading to gpt-5.4')
-      const r2 = await callOpenAI(question, serpContext, loc, lang, monthYear, currentYear, cat, 'gpt-5.4', openaiKey)
-      if (r2.answer||r2.products.length>0) { answer=r2.answer; rawProducts=r2.products }
+      const r2=await callOpenAI(question,serpContext,loc,lang,monthYear,currentYear,cat,weights,'gpt-5.4',openaiKey)
+      if(r2.answer||r2.products.length>0){answer=r2.answer;rawProducts=r2.products}
     }
   }
-
-  if (!answer && rawProducts.length===0 && sarvamKey) {
-    const r = await callSarvam(question, serpContext, loc, lang, monthYear, sarvamKey)
-    answer=r.answer; rawProducts=r.products
+  if(!answer&&rawProducts.length===0&&sarvamKey){
+    const r=await callSarvam(question,serpContext,loc,lang,monthYear,sarvamKey)
+    answer=r.answer;rawProducts=r.products
   }
 
-  if (!answer && rawProducts.length===0) {
-    return { answer:'AI is temporarily unavailable. Please try again.', aiProducts:[], serpProducts:serpResult.products, relatedSearches:serpResult.relatedSearches }
+  if(!answer&&rawProducts.length===0){
+    return{answer:'AI temporarily unavailable. Please try again.',aiProducts:[],serpProducts:serpResult.products,relatedSearches:serpResult.relatedSearches,algorithm_version:ALGORITHM_VERSION}
   }
 
-  let aiProducts: AiProduct[] = (rawProducts as Record<string,unknown>[])
-    .filter(p => p && typeof p.name==='string' && p.name.length>2)
+  // Sanitise AI products
+  let aiProducts:AiProduct[]=(rawProducts as Record<string,unknown>[])
+    .filter(p=>p&&typeof p.name==='string'&&p.name.length>2)
     .slice(0,3).map(sanitise)
 
-  if (aiProducts.length<3 && serpResult.products.length>0) {
-    const used = new Set(aiProducts.map(p=>p.name.toLowerCase()))
-    const fill = serpResult.products
-      .filter(sp=>sp.title&&sp.price&&!used.has(sp.title.toLowerCase()))
+  // Run successor check on sanitised products
+  aiProducts=aiProducts.map(p=>{
+    const successor=checkSuccessor(p.name,cat)
+    if(successor&&!p.successor_of){
+      return{...p,successor_of:p.name,name:successor}
+    }
+    return p
+  })
+
+  // SERP fill if AI returned fewer than 3
+  if(aiProducts.length<3&&serpResult.products.length>0){
+    const used=new Set(aiProducts.map(p=>p.name.toLowerCase()))
+    const fill=serpResult.products
+      .filter(sp=>sp.title&&sp.price&&isMarketplace(sp.source)&&!used.has(sp.title.toLowerCase()))
       .slice(0,3-aiProducts.length)
-      .map((sp,i): AiProduct => ({
-        name:sp.title, price:sp.price||'—', seller:sp.source||'Amazon',
+      .map((sp,i):AiProduct=>({
+        name:sp.title,price:sp.price||'—',seller:normaliseMarketplace(sp.source),
         rating:sp.rating?Math.min(4.8,Math.max(3.0,Number(sp.rating))):4.0,
         platform_rating:sp.rating?Math.min(5.0,Number(sp.rating)+0.3):4.3,
-        reviews:'', badge:(['Best Pick','Best Value','Budget Pick'][aiProducts.length+i])||'Top Rated',
-        reason:`Top result on ${sp.source||'Amazon'} for this query.`,
-        pros:['Competitive price in India','Available on major platform'],
+        reviews:'',badge:(['Best Pick','Best Value','Budget Pick'][aiProducts.length+i])||'Top Rated',
+        reason:`Top marketplace result for this query.`,
+        pros:['Competitive price in India','Available on verified platform'],
         cons:['Compare full specs before buying'],
         avoid_if:'If you need detailed AI analysis — try again shortly',
-        score:0,
+        score:0,platform_prices:[],best_price:'',best_price_platform:'',best_price_url:'',
       }))
     aiProducts=[...aiProducts,...fill]
   }
 
-  // Enrich with Skyscanner-style cross-platform prices from live SERP data
-  aiProducts = enrichWithSerpPrices(aiProducts, serpResult.products)
+  // Price enrichment — Skyscanner-style cross-platform pricing
+  aiProducts=enrichPrices(aiProducts,serpResult.products)
 
-  const result: SearchResult = {
-    answer: answer||'Here are the top electronics options for India right now.',
-    aiProducts: aiProducts.slice(0,3),
-    serpProducts: serpResult.products,
-    relatedSearches: serpResult.relatedSearches,
+  const result:SearchResult={
+    answer:answer||'Here are the top electronics options for India right now.',
+    aiProducts:aiProducts.slice(0,3),
+    serpProducts:serpResult.products,
+    relatedSearches:serpResult.relatedSearches,
+    location_used:loc||'India (no location)',
+    algorithm_version:ALGORITHM_VERSION,
   }
-  cache.set(cacheKey, { result, ts:Date.now() })
+  cache.set(cacheKey,{result,ts:Date.now()})
   return result
 }
