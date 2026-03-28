@@ -280,9 +280,9 @@ function SearchResults(){
       const coTPrefixes = ['okay,','okay the','let me','i need','i will','i'll','first,','the user','to answer','analyzing','step 1','step1']
       if(coTPrefixes.some(p=>cleanAnswer.toLowerCase().startsWith(p))) {
         // Find first sentence that sounds like advice
-        const sentences = cleanAnswer.split(/[.!?]+/).map((s:string)=>s.trim()).filter((s:string)=>s.length>20)
-        const adviceSentence = sentences.find((s:string)=>
-          /(?:for |the best|recommend|in india|₹|under|price|performance|camera|battery|display|value)/i.test(s)
+        const sentences = cleanAnswer.split(/[.!?]+/).map((x:string)=>x.trim()).filter((x:string)=>x.length>20)
+        const adviceSentence = sentences.find((x:string)=>
+          /(?:for |the best|recommend|in india|₹|under|price|performance|camera|battery|display|value)/i.test(x)
         )
         cleanAnswer = adviceSentence ? adviceSentence + '.' : ''
       }
