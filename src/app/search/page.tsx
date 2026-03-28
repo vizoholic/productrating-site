@@ -134,13 +134,13 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
           </div>
         )}
 
-        {/* Pros / Cons */}
+        {/* Pros / Cons / Avoid if — collapsed by default, toggle to reveal all */}
         {(p.pros?.length>0||p.cons?.length>0||p.avoid_if)&&(
           <div style={{marginBottom:4}}>
-            <button onClick={()=>setOpen(!open)}
+            <button onClick={()=>setOpen(v=>!v)}
               style={{fontSize:11,color:'#57534E',fontWeight:600,background:'none',border:'none',cursor:'pointer',padding:'0 0 10px',display:'flex',alignItems:'center',gap:6,fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',transition:'color 0.2s'}}
               onMouseEnter={e=>(e.currentTarget.style.color='var(--ink)')}
-              onMouseLeave={e=>(e.currentTarget.style.color='var(--ink-3)')}>
+              onMouseLeave={e=>(e.currentTarget.style.color='#57534E')}>
               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{transform:open?'rotate(90deg)':'rotate(0)',transition:'transform 0.2s'}}><path d="M9 18l6-6-6-6"/></svg>
               {open?'Hide details':'Pros · Cons · Avoid if'}
             </button>
@@ -149,19 +149,19 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
                 {p.pros?.length>0&&(
                   <div style={{background:'var(--green-bg)',border:'1px solid rgba(22,163,74,0.15)',borderRadius:'var(--radius)',padding:'12px 16px'}}>
                     <div style={{fontSize:9,color:'var(--green)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',marginBottom:8}}>Pros</div>
-                    {p.pros.map((pro,i)=><div key={i} style={{fontSize:13,color:'var(--ink-2)',display:'flex',gap:8,marginBottom:i<p.pros.length-1?6:0,lineHeight:1.7,letterSpacing:'0.01em',fontWeight:300}}><span style={{color:'var(--green)',flexShrink:0}}>+</span>{pro}</div>)}
+                    {p.pros.map((pro,i)=><div key={i} style={{fontSize:13,color:'var(--ink-2)',display:'flex',gap:8,marginBottom:i<p.pros.length-1?6:0,lineHeight:1.7,letterSpacing:'0.01em',fontWeight:400}}><span style={{color:'var(--green)',flexShrink:0}}>+</span>{pro}</div>)}
                   </div>
                 )}
                 {p.cons?.length>0&&(
                   <div style={{background:'rgba(220,38,38,0.04)',border:'1px solid rgba(220,38,38,0.12)',borderRadius:'var(--radius)',padding:'12px 16px'}}>
                     <div style={{fontSize:9,color:'var(--red)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',marginBottom:8}}>Cons</div>
-                    {p.cons.map((con,i)=><div key={i} style={{fontSize:13,color:'var(--ink-2)',display:'flex',gap:8,lineHeight:1.7,letterSpacing:'0.01em',fontWeight:300,marginBottom:i<p.cons.length-1?6:0}}><span style={{color:'var(--red)',flexShrink:0}}>−</span>{con}</div>)}
+                    {p.cons.map((con,i)=><div key={i} style={{fontSize:13,color:'var(--ink-2)',display:'flex',gap:8,lineHeight:1.7,letterSpacing:'0.01em',fontWeight:400,marginBottom:i<p.cons.length-1?6:0}}><span style={{color:'var(--red)',flexShrink:0}}>−</span>{con}</div>)}
                   </div>
                 )}
                 {p.avoid_if&&(
                   <div style={{background:'var(--gold-bg)',border:'1px solid rgba(160,120,42,0.15)',borderRadius:'var(--radius)',padding:'12px 16px'}}>
-                    <span style={{fontSize:9,color:'var(--gold)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase'}}>Avoid if </span>
-                    <span style={{fontSize:13,color:'var(--ink-2)',lineHeight:1.7,letterSpacing:'0.01em',fontWeight:300}}>{p.avoid_if}</span>
+                    <span style={{fontSize:9,color:'var(--gold)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase'}}>Avoid if — </span>
+                    <span style={{fontSize:13,color:'var(--ink-2)',lineHeight:1.7,letterSpacing:'0.01em',fontWeight:400}}>{p.avoid_if}</span>
                   </div>
                 )}
               </div>
