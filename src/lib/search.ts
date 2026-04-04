@@ -14,12 +14,20 @@ export type PlatformPrice = {
   url: string; availability: string; is_lowest: boolean
 }
 
+export type NewerVersion = {
+  name: string         // Full name of newer model
+  reason: string       // Why it's better / what's new
+  price_approx: string // Approx India price
+}
+
 export type AiProduct = {
   name: string; price: string; seller: string
   rating: number; platform_rating: number
   reviews: string; badge: string; reason: string
   pros: string[]; cons: string[]; avoid_if: string
   score?: number; successor_of?: string
+  launch_date_india?: string  // e.g. "March 2024" or "Q1 2025"
+  newer_version?: NewerVersion | null  // If a newer model in same series exists
   platform_prices?: PlatformPrice[]
   best_price?: string; best_price_platform?: string; best_price_url?: string
 }
@@ -171,6 +179,14 @@ function sanitise(p: Record<string,unknown>, i: number): AiProduct {
     avoid_if: String(p.avoid_if||''),
     score: Number(p.score||0),
     successor_of: p.successor_of ? String(p.successor_of) : undefined,
+    launch_date_india: p.launch_date_india ? String(p.launch_date_india) : undefined,
+    newer_version: p.newer_version && typeof p.newer_version === 'object'
+      ? {
+          name: String((p.newer_version as Record<string,unknown>).name || ''),
+          reason: String((p.newer_version as Record<string,unknown>).reason || ''),
+          price_approx: String((p.newer_version as Record<string,unknown>).price_approx || ''),
+        }
+      : null,
     platform_prices: [], best_price: '', best_price_platform: '', best_price_url: '',
   }
 }
@@ -261,9 +277,9 @@ Return ONLY valid JSON matching this exact structure — no text before or after
 {
   "answer": "<2 sentences of direct buying advice. No reasoning. No 'Okay' or 'Let me'. Start with the recommendation.>",
   "products": [
-    {"name":"<full name with variant>","price":"<₹XX,XXX>","seller":"<Amazon|Flipkart|Croma>","rating":<3.5-4.8>,"platform_rating":<3.8-5.0>,"reviews":"<Xk>","badge":"Best Pick","score":<50-95>,"reason":"<one sentence why #1>","pros":["<pro1>","<pro2>"],"cons":["<con1>"],"avoid_if":"<who should skip>","successor_of":null},
-    {"name":"...","price":"...","seller":"...","rating":0.0,"platform_rating":0.0,"reviews":"...","badge":"Best Value","score":0,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null},
-    {"name":"...","price":"...","seller":"...","rating":0.0,"platform_rating":0.0,"reviews":"...","badge":"Budget Pick","score":0,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null}
+    {"name":"<full name with variant>","price":"<₹XX,XXX>","seller":"<Amazon|Flipkart|Croma>","rating":<3.5-4.8>,"platform_rating":<3.8-5.0>,"reviews":"<Xk>","badge":"Best Pick","score":<50-95>,"reason":"<one sentence why #1>","pros":["<pro1>","<pro2>"],"cons":["<con1>"],"avoid_if":"<who should skip>","successor_of":null,"launch_date_india":"<e.g. Jan 2025 or Q3 2024>","newer_version":{"name":"<newer model name if exists, else null>","reason":"<what is new/better>","price_approx":"<₹XX,XXX>"}},
+    {"name":"...","price":"...","seller":"...","rating":0.0,"platform_rating":0.0,"reviews":"...","badge":"Best Value","score":0,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null,"launch_date_india":"...","newer_version":null},
+    {"name":"...","price":"...","seller":"...","rating":0.0,"platform_rating":0.0,"reviews":"...","badge":"Budget Pick","score":0,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null,"launch_date_india":"...","newer_version":null}
   ]
 }
 
@@ -276,7 +292,10 @@ SELECTION CRITERIA (apply internally, never describe in output):
 • Service: Brands with India service centres${loc ? ' near ' + loc : ''}
 
 India ${monthYear}: iQOO Z9x, CMF Phone 2 Pro, Moto G96, Realme P4, Redmi 15 5G, Samsung A36, POCO X7
-Successor rule: Note 12/13→14/15 | M33/M34→M35 | Narzo 60→80 | iQOO Z7→Z9 | Nord CE 3→CE 4`
+Successor rule: Note 12/13→14/15 | M33/M34→M35 | Narzo 60→80 | iQOO Z7→Z9 | Nord CE 3→CE 4
+• launch_date_india: Month+Year of India launch (e.g. "January 2025", "Q3 2024"). Be accurate.
+• newer_version: If a newer model in the SAME series launched after this product, populate it. If this IS the newest, set to null.
+  Example: iQOO Z9x launched Jan 2025 → newer_version null (it IS newest). Redmi Note 13 → newer_version: {name:"Redmi Note 14 Pro 5G", reason:"Upgraded Snapdragon 7s Gen 3, better 50MP camera", price_approx:"₹22,999"}`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
