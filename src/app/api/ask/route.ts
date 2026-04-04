@@ -104,7 +104,6 @@ export async function POST(req: NextRequest) {
         sarvamKey,
         openaiKey  || undefined,
         claudeKey  || undefined,
-        geminiKey  || undefined,
       )
       console.log(`[Route] provider=${result.provider_used} products=${result.aiProducts?.length} outOfScope=${result.isOutOfScope}`)
       return NextResponse.json(result)
