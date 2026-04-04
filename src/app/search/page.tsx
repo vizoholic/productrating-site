@@ -5,7 +5,8 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 
 type PlatformPrice = { platform:string; price:string; url:string; availability:string; isBrand?:boolean }
-type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; pros:string[]; cons:string[]; avoid_if:string; score?:number; platform_prices?:PlatformPrice[]; best_price?:string; best_price_platform?:string }
+type NewerVersion = { name:string; reason:string; price_approx:string }
+type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; pros:string[]; cons:string[]; avoid_if:string; score?:number; platform_prices?:PlatformPrice[]; best_price?:string; best_price_platform?:string ; launch_date_india?:string; newer_version?:{name:string;reason:string;price_approx:string}|null }
 type SerpProduct = { title:string; price:string; rating:number|null; source:string; link:string; thumbnail:string; delivery:string }
 
 // Normalise platform display — never show brand/manufacturer sites
@@ -88,6 +89,11 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
 
         <h3 style={{fontWeight:700,fontSize:19,color:'#0D0D0C',lineHeight:1.25,letterSpacing:'-0.5px',marginBottom:14}}>{p.name}</h3>
 
+          {/* Launch date badge */}
+          {p.launch_date_india&&(
+            <span style={{display:'inline-block',fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',background:'var(--bg-2)',border:'1px solid var(--border)',borderRadius:4,padding:'2px 8px',marginBottom:10}}>🗓 India launch: {p.launch_date_india}</span>
+          )}
+
         <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap'}}>
           <span style={{fontSize:30,fontWeight:800,color:isTop?'#4A3FBF':'#0D0D0C',letterSpacing:'-2px',fontFamily:'var(--font-sans)'}}>{p.price}</span>
           
@@ -169,6 +175,21 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
           </div>
         )}
       </div>
+
+      {/* Newer version notice */}
+      {p.newer_version?.name&&(
+        <div style={{margin:'0 18px 14px',background:'rgba(91,79,207,0.04)',border:'1px solid rgba(91,79,207,0.2)',borderRadius:'var(--radius)',padding:'10px 14px'}}>
+          <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
+            <span style={{fontSize:14,flexShrink:0}}>⚡</span>
+            <div>
+              <div style={{fontSize:10,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',marginBottom:4,fontWeight:600}}>Newer version available</div>
+              <div style={{fontSize:13,color:'var(--ink)',fontWeight:600,marginBottom:2}}>{p.newer_version.name}</div>
+              <div style={{fontSize:12,color:'var(--ink-3)',lineHeight:1.5}}>{p.newer_version.reason}</div>
+              {p.newer_version.price_approx&&<div style={{fontSize:12,color:'var(--accent)',fontWeight:500,marginTop:4}}>~{p.newer_version.price_approx}</div>}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Skyscanner-style price comparison */}
       <div style={{borderTop:'1px solid var(--border)',background:'var(--bg-2)'}}>
