@@ -4,9 +4,9 @@ import { useRouter } from 'next/navigation'
 import { detectLocation, getCachedLocation, cacheLocation, type LocationData } from '@/lib/useLocation'
 
 const EXAMPLES = [
-  'Best AC for Chennai heat under ₹40,000',
   'Best phone under ₹20,000',
-  'Best washing machine for hard water',
+  'बेस्ट मोबाइल ₹15,000 में',
+  'Best AC for Chennai under ₹40,000',
 ]
 const SOURCES = ['Amazon','Flipkart','Nykaa','Croma','Meesho','JioMart','Myntra','Tata Cliq']
 
@@ -89,8 +89,16 @@ export default function Hero() {
         <div style={{display:'inline-flex',alignItems:'center',gap:7,marginBottom:36,animation:'fade-in 0.7s ease both'}}>
           <div style={{display:'flex',alignItems:'center',gap:7,background:'var(--accent-bg)',border:'1px solid var(--accent-border)',borderRadius:100,padding:'6px 18px'}}>
             <span style={{width:5,height:5,borderRadius:'50%',background:'var(--accent)',display:'inline-block',animation:'blink 2s infinite'}}/>
-            <span style={{fontSize:11,fontWeight:500,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>India's AI Product Intelligence</span>
+            <span style={{fontSize:11,fontWeight:500,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>India's AI Electronics Advisor</span>
           </div>
+        </div>
+
+        {/* Electronics category strip */}
+        <div style={{display:'flex',flexWrap:'wrap',gap:8,justifyContent:'center',marginBottom:20,marginTop:4}}>
+          {['📱 Phones','💻 Laptops','📺 TVs','❄️ ACs','🎧 Audio','⌚ Watches','🧊 Fridges','🫧 Washing','📷 Cameras','🔊 Speakers'].map(cat=>(
+            <span key={cat} style={{fontSize:12,color:'var(--ink-3)',background:'rgba(91,79,207,0.06)',border:'1px solid rgba(91,79,207,0.15)',borderRadius:100,padding:'4px 12px',letterSpacing:'0.01em',fontWeight:400}}>{cat}</span>
+          ))}
+          <span style={{fontSize:12,color:'var(--ink-4)',background:'var(--bg-2)',border:'1px solid var(--border)',borderRadius:100,padding:'4px 12px',letterSpacing:'0.01em',fontWeight:400,fontStyle:'italic'}}>more coming soon</span>
         </div>
 
         {/* #3 HEADLINE — 10-15% bigger, controlled weight */}
@@ -122,8 +130,7 @@ export default function Hero() {
           animation:'fade-up 0.7s 0.16s ease both',
           opacity:0,animationFillMode:'forwards'
         }}>
-          One honest score across India's top platforms.<br/>
-          Fake reviews filtered. Real ratings, only.
+          Phones · Laptops · TVs · ACs · Audio · Appliances &amp; more.<br/>Fake reviews removed. <strong>Electronics only</strong> — expanding soon.
         </p>
 
         {/* #8 SEARCH BAR — glassmorphism + glow */}
@@ -150,7 +157,7 @@ export default function Hero() {
                 onChange={e=>{if(!isBusy)setQuery(e.target.value)}}
                 onKeyDown={e=>e.key==='Enter'&&!isBusy&&go()}
                 onFocus={()=>setFocused(true)} onBlur={()=>setFocused(false)}
-                placeholder={location?.city?`Ask anything — best phone for ${location.city}...`:'Ask anything — best AC for Chennai, best phone under ₹20,000'}
+                placeholder={location?.city?`Ask anything — best phone for ${location.city}...`:'Best phone, laptop, TV, AC, earbuds, appliance...'}
                 readOnly={isBusy}
                 style={{flex:1,border:'none',outline:'none',fontSize:16,fontWeight:300,letterSpacing:'0.02em',color:isRec?'var(--red)':'var(--ink)',background:'transparent',fontFamily:'var(--font-sans)',padding:'18px 0',minWidth:0,caretColor:'var(--accent)'}}
               />
@@ -213,7 +220,7 @@ export default function Hero() {
           {/* #10 Hint — clear, larger on mobile */}
           {!isRec&&!isProc&&!transcript&&(
             <p style={{marginTop:14,fontSize:12,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px'}}>
-              {location?.city?`📍 Personalised for ${location.city}`:'🎙️  Speak in 22 Indian languages'}
+              {location?.city?`📍 Electronics picks for ${location.city}`:'📱 Electronics · 💻 Laptops · 📺 TVs · ❄️ ACs · 🎧 Audio'}
             </p>
           )}
 
@@ -249,7 +256,7 @@ export default function Hero() {
           animation:'fade-up 0.7s 0.4s ease both',
           opacity:0,animationFillMode:'forwards',
         }}>
-          {[['5M+','Reviews analysed'],['38%','Fake reviews filtered'],['22','Indian languages'],['8+','Platforms']].map(([n,l])=>(
+          {[['5M+','Reviews analysed'],['38%','Fake removed'],['12+','Categories'],['22','Indian languages']].map(([n,l])=>(
             <div key={l} style={{textAlign:'center',minWidth:80}}>
               {/* #3 big numerals */}
               <div style={{fontSize:'clamp(30px,4.5vw,42px)',fontWeight:700,color:'var(--ink)',letterSpacing:'-2px',lineHeight:1,fontFamily:'var(--font-sans)'}}>
