@@ -288,7 +288,9 @@ function SearchResults(){
       setAnswer(ans);setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
     catch{setAnswer('Something went wrong. Please try again.')}finally{setLoading(false)}
   }
-  if(query&&!called&&!loading){doSearch(query);setCalled(true)}
+  useEffect(()=>{
+    if(query&&!called&&!loading){doSearch(query);setCalled(true)}
+  },[query])
   const submit=(q?:string)=>{const t=(q||input).trim();if(!t)return;router.push(`/search?q=${encodeURIComponent(t)}`);doSearch(t)}
 
   const stopRec=()=>{if(mediaRef.current?.state!=='inactive')mediaRef.current?.stop();streamRef.current?.getTracks().forEach(t=>t.stop());setRecState('processing')}
@@ -463,9 +465,9 @@ function SearchResults(){
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="1.5" strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           </div>
           <h3 style={{fontSize:20,fontWeight:700,color:'var(--ink)',marginBottom:10,letterSpacing:'-0.4px'}}>Electronics only — for now</h3>
-          <p style={{fontSize:15,color:'var(--ink-3)',lineHeight:1.75,marginBottom:24,fontWeight:300}}>ProductRating.in currently specialises in electronics — phones, laptops, TVs, ACs, appliances, audio, and more. We're expanding to other categories soon.</p>
+          <p style={{fontSize:15,color:'var(--ink-3)',lineHeight:1.75,marginBottom:24,fontWeight:300}}>ProductRating.in currently covers <strong>electronics only</strong> — phones, laptops, TVs, ACs, appliances, audio &amp; more. Try asking in Hindi, Tamil, Telugu or any Indian language too!</p>
           <div style={{display:'flex',flexWrap:'wrap',gap:8,justifyContent:'center'}}>
-            {['Best phone under ₹20,000','Best laptop for students','Best AC for Chennai','Best TWS earbuds','Best 4K TV under ₹50,000'].map(ex=>(
+            {['Best phone under ₹20,000','बेस्ट मोबाइल ₹15,000 में','Best AC for Chennai','Best TWS earbuds','Best 4K TV under ₹50,000'].map(ex=>(
               <button key={ex} onClick={()=>submit(ex)}
                 style={{padding:'8px 16px',borderRadius:100,fontSize:13,fontWeight:400,background:'var(--bg-2)',border:'1.5px solid var(--border-hi)',color:'var(--ink-2)',cursor:'pointer',transition:'all 0.25s',letterSpacing:'0.01em'}}
                 onMouseEnter={e=>{(e.currentTarget as HTMLButtonElement).style.borderColor='var(--accent)';(e.currentTarget as HTMLButtonElement).style.color='var(--accent)'}}
