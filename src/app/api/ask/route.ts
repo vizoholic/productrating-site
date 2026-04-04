@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { runSearch } from '@/lib/search'
 
 export const runtime = 'nodejs'
+export const maxDuration = 60  // Allow up to 60s for OpenAI calls (default 10s too short)
 
 const ALLOWED_ORIGINS = [
   'https://www.productrating.in',
