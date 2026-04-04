@@ -257,6 +257,8 @@ function SearchResults(){
   const sp=useSearchParams(),router=useRouter()
   const query=sp.get('q')||''
   const [input,setInput]=useState(query)
+  // Sync input box when URL query param changes (e.g. from example pill clicks)
+  useEffect(()=>{if(query)setInput(query)},[query])
   const [loading,setLoading]=useState(false)
   const [called,setCalled]=useState(false)
   const [answer,setAnswer]=useState('')
@@ -270,10 +272,11 @@ function SearchResults(){
   const mediaRef=useRef<MediaRecorder|null>(null)
   const chunksRef=useRef<Blob[]>([])
   const streamRef=useRef<MediaStream|null>(null)
+  const lastSearchedRef=useRef<string>('')  // deduplication — prevent same query firing twice
 
   const doSearch=async(q:string)=>{
-    if(!q.trim())return
-    setLoading(true);setCalled(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([])
+    if(!q.trim()||loading)return  // loading guard prevents double calls
+    setLoading(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([])
     try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();if(d.isOutOfScope){setAnswer('__OUT_OF_SCOPE__');setAiProducts([]);setSerpProducts([]);setRelated([]);setLoading(false);return;}
       // Strip reasoning preamble if model leaked chain-of-thought
       let ans = String(d.answer||'')
@@ -289,9 +292,13 @@ function SearchResults(){
     catch{setAnswer('Something went wrong. Please try again.')}finally{setLoading(false)}
   }
   useEffect(()=>{
-    if(query&&!called&&!loading){doSearch(query);setCalled(true)}
+    if(query&&query.trim()&&!loading&&query!==lastSearchedRef.current){
+      lastSearchedRef.current=query
+      doSearch(query)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[query])
-  const submit=(q?:string)=>{const t=(q||input).trim();if(!t)return;router.push(`/search?q=${encodeURIComponent(t)}`);doSearch(t)}
+  const submit=(q?:string)=>{const t=(q||input).trim();if(!t)return;setInput(t);router.push(`/search?q=${encodeURIComponent(t)}`)}
 
   const stopRec=()=>{if(mediaRef.current?.state!=='inactive')mediaRef.current?.stop();streamRef.current?.getTracks().forEach(t=>t.stop());setRecState('processing')}
   const startRec=async()=>{
