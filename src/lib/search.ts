@@ -1,6 +1,6 @@
 // src/lib/search.ts
 // ProductRating.in — Multi-Provider AI Engine
-// Voice: Sarvam AI | Search: Google SERP | Intelligence: OpenAI / Claude / Gemini
+// Voice: Sarvam AI | Search: Google SERP | Intelligence: OpenAI gpt-4.1 / Claude claude-sonnet-4-6
 // Routing: Best model per query type, automatic fallback chain
 
 import { searchGoogleShopping, buildProductContext, type SerpSearchResult } from './serpapi'
@@ -93,12 +93,12 @@ type QueryType = 'simple' | 'compare' | 'complex'
 
 type ProviderPlan = {
   type: QueryType
-  primary: { provider: 'openai'|'claude'|'gemini'|'sarvam'; model: string }
-  fallbacks: Array<{ provider: 'openai'|'claude'|'gemini'|'sarvam'; model: string }>
+  primary: { provider: 'openai'|'claude'|'sarvam'; model: string }
+  fallbacks: Array<{ provider: 'openai'|'claude'|'sarvam'; model: string }>
 }
 
 function routeQuery(question: string, keys: {
-  openai?: string; claude?: string; gemini?: string; sarvam?: string
+  openai?: string; claude?: string; sarvam?: string
 }): ProviderPlan {
   const isCompare = /\bcompare\b|\bvs\b|versus|difference between|which is better|should i buy|worth it/i.test(question)
   const isComplex = /expert|detailed analysis|pros and cons of all|comprehensive|in-depth/i.test(question)
@@ -106,23 +106,23 @@ function routeQuery(question: string, keys: {
 
   // Build available providers in preference order
   const available = {
-    openai_41:  keys.openai  ? { provider: 'openai'  as const, model: 'gpt-4.1'            } : null,
-    openai_52:  keys.openai  ? { provider: 'openai'  as const, model: 'gpt-5.2'             } : null,
-    claude:     keys.claude  ? { provider: 'claude'  as const, model: 'claude-sonnet-4-6'   } : null,
-    gemini:     keys.gemini  ? { provider: 'gemini'  as const, model: 'gemini-2.5-flash'    } : null,
-    sarvam:     keys.sarvam  ? { provider: 'sarvam'  as const, model: 'sarvam-m'            } : null,
+    openai_41:  keys.openai  ? { provider: 'openai'  as const, model: 'gpt-4.1'          } : null,
+    openai_52:  keys.openai  ? { provider: 'openai'  as const, model: 'gpt-5.2'           } : null,
+    claude:     keys.claude  ? { provider: 'claude'  as const, model: 'claude-sonnet-4-6' } : null,
+    sarvam:     keys.sarvam  ? { provider: 'sarvam'  as const, model: 'sarvam-m'          } : null,
   }
 
   if (type === 'compare') {
-    // Compare: Claude is best at nuanced analysis, then OpenAI gpt-5.2, then gpt-4.1, then Gemini
-    const primary = available.claude || available.openai_52 || available.openai_41 || available.gemini || available.sarvam
-    const fallbacks = [available.openai_52, available.openai_41, available.gemini, available.sarvam]
+    // Compare: Claude (best analysis) → OpenAI gpt-5.2 → gpt-4.1 → Sarvammini
+    // Compare: Claude best for analysis, OpenAI gpt-5.2 next, gpt-4.1 fallback, Sarvam last
+    const primary = available.claude || available.openai_52 || available.openai_41 || available.sarvam
+    const fallbacks = [available.openai_52, available.openai_41, available.sarvam]
       .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
     return { type, primary: primary!, fallbacks }
   } else {
-    // Simple: gpt-4.1 is ideal (non-reasoning, clean JSON, fast), then Gemini, then Claude, then Sarvam
-    const primary = available.openai_41 || available.gemini || available.claude || available.sarvam
-    const fallbacks = [available.gemini, available.openai_52, available.claude, available.sarvam]
+    // Simple: gpt-4.1 ideal (non-reasoning, clean JSON, fast), then Claude, then gpt-5.2, then Sarvam
+    const primary = available.openai_41 || available.claude || available.openai_52 || available.sarvam
+    const fallbacks = [available.claude, available.openai_52, available.sarvam]
       .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
     return { type, primary: primary!, fallbacks }
   }
@@ -353,42 +353,6 @@ async function callClaude(
   return { answer:'', products:[] }
 }
 
-async function callGemini(
-  systemPrompt: string, userMsg: string, model: string, apiKey: string
-): Promise<{ answer: string; products: unknown[] }> {
-  for (let attempt = 0; attempt <= 1; attempt++) {
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-        {
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({
-            systemInstruction:{ parts:[{ text: systemPrompt }] },
-            contents:[{ role:'user', parts:[{ text: userMsg }] }],
-            generationConfig:{ responseMimeType:'application/json', maxOutputTokens:4000, temperature:0.25 },
-          }),
-        }
-      )
-      if (res.status===429) { await new Promise(r=>setTimeout(r,2000)); continue }
-      const raw = await res.text()
-      console.log(`[Gemini:${model}] status=${res.status} len=${raw.length}`)
-      if (!res.ok) {
-        console.error(`[Gemini:${model}] HTTP ${res.status}: ${raw.slice(0,200)}`)
-        return { answer:'', products:[] }
-      }
-      const d = JSON.parse(raw)
-      const content: string = d?.candidates?.[0]?.content?.parts?.[0]?.text||''
-      const jsonStr = content.replace(/^```(?:json)?\s*/,'').replace(/\s*```$/,'').trim()
-      const start = jsonStr.indexOf('{'); const end = jsonStr.lastIndexOf('}')
-      if (start<0||end<0) return { answer:'', products:[] }
-      const parsed = JSON.parse(jsonStr.slice(start, end+1))
-      console.log(`[Gemini:${model}] answer="${String(parsed.answer||'').slice(0,60)}" products=${Array.isArray(parsed.products)?parsed.products.length:0}`)
-      return { answer: String(parsed.answer||''), products: Array.isArray(parsed.products)?parsed.products:[] }
-    } catch(e) { console.error(`[Gemini:${model}] attempt ${attempt+1}:`,String(e)) }
-  }
-  return { answer:'', products:[] }
-}
 
 async function callSarvamChat(
   systemPrompt: string, userMsg: string, apiKey: string
@@ -417,10 +381,10 @@ async function callSarvamChat(
 // UNIFIED PROVIDER DISPATCHER
 // ─────────────────────────────────────────────────────────────────────────────
 
-type ProviderKeys = { openai?:string; claude?:string; gemini?:string; sarvam?:string }
+type ProviderKeys = { openai?:string; claude?:string; sarvam?:string }
 
 async function callProvider(
-  provider: 'openai'|'claude'|'gemini'|'sarvam',
+  provider: 'openai'|'claude'|'sarvam',
   model: string,
   systemPrompt: string,
   userMsg: string,
@@ -428,7 +392,6 @@ async function callProvider(
 ): Promise<{ answer: string; products: unknown[] }> {
   if (provider==='openai'  && keys.openai)  return callOpenAI(systemPrompt, userMsg, model, keys.openai)
   if (provider==='claude'  && keys.claude)  return callClaude(systemPrompt, userMsg, model, keys.claude)
-  if (provider==='gemini'  && keys.gemini)  return callGemini(systemPrompt, userMsg, model, keys.gemini)
   if (provider==='sarvam'  && keys.sarvam)  return callSarvamChat(systemPrompt, userMsg, keys.sarvam)
   return { answer:'', products:[] }
 }
@@ -442,7 +405,6 @@ export async function runSearch(
   sarvamKey: string,
   openaiKey?: string,
   claudeKey?: string,
-  geminiKey?: string,
 ): Promise<SearchResult> {
 
   if (!isElectronics(question)) {
@@ -458,11 +420,11 @@ export async function runSearch(
   const lang = detectLang(question)
   const loc = getLocation(city, state)
 
-  const keys: ProviderKeys = { openai:openaiKey, claude:claudeKey, gemini:geminiKey, sarvam:sarvamKey }
+  const keys: ProviderKeys = { openai:openaiKey, claude:claudeKey, sarvam:sarvamKey }
   const plan = routeQuery(question, keys)
 
   console.log(`[Search] type=${plan.type} primary=${plan.primary?.provider}:${plan.primary?.model} loc="${loc||'India'}"`)
-  console.log(`[Search] keys: openai=${!!openaiKey} claude=${!!claudeKey} gemini=${!!geminiKey} sarvam=${!!sarvamKey}`)
+  console.log(`[Search] keys: openai=${!!openaiKey} claude=${!!claudeKey} sarvam=${!!sarvamKey}`)
 
   // SERP — live prices from Google Shopping
   let serpResult: SerpSearchResult = { products:[], relatedSearches:[], query:question }
