@@ -712,7 +712,7 @@ PHASE 3 — RESPONSE FORMAT (JSON ONLY, no other text)
         body: JSON.stringify({
           model,
           messages:[{role:'system',content:systemPrompt},{role:'user',content:userMsg}],
-          max_tokens: 2500,
+          max_tokens: 4000,
           temperature: 0.25,
           response_format: { type:'json_object' },
         }),
@@ -728,33 +728,9 @@ PHASE 3 — RESPONSE FORMAT (JSON ONLY, no other text)
       const prods = Array.isArray(parsed.products)?parsed.products:[]
       console.log(`[OpenAI] products:${prods.length}`)
 
-      // Strip reasoning/CoT that reasoning models sometimes put in answer field
-      let answer = String(parsed.answer||'')
-      // If answer starts with reasoning patterns, extract just the buying advice
-      const reasoningPatterns = [
-        /^(okay|alright|sure|let me|i need to|i'll|i will|i should|first,|the user|to answer|looking at|based on|analyzing|let's start|step [0-9])/i,
-        /^(okay,? the user|let me start|i need to generate|i'll generate|let me analyze)/i,
-      ]
-      for (const pat of reasoningPatterns) {
-        if (pat.test(answer.trim())) {
-          // Try to find the actual advice after the reasoning
-          // Look for sentences that sound like recommendations
-          const adviceMatch = answer.match(/(?:for (?:under|around)|the (?:best|top)|(?:i )?recommend|in (?:india|this price)|all three|between these)[^.!?]*[.!?]/i)
-          if (adviceMatch) {
-            // Find where actual advice starts
-            const adviceIdx = answer.toLowerCase().indexOf(adviceMatch[0].toLowerCase())
-            if (adviceIdx > 0 && adviceIdx < answer.length * 0.7) {
-              answer = answer.slice(adviceIdx).split('\n')[0].trim()
-            }
-          }
-          // If still looks like reasoning, use a generic fallback
-          if (reasoningPatterns.some(p => p.test(answer.trim()))) {
-            answer = ''  // Will use fallback below
-          }
-          break
-        }
-      }
-
+      // Simple CoT strip — just remove "Advice:" prefix if present
+      const answer = String(parsed.answer||'').replace(/^(advice:|note:|summary:)\s*/i,'').trim()
+      console.log(`[OpenAI] answer len=${answer.length} products=${prods.length}`)
       return { answer, products: prods }
     } catch(e) {
       console.error(`[OpenAI] attempt ${attempt+1}:`,String(e))
