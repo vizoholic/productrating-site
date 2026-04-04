@@ -61,6 +61,7 @@ const ALGORITHM_VERSION = 'PRv4.0-electronics'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ELECTRONICS_RE = [
+  // English patterns
   /\b(phone|mobile|smartphone|5g|foldable|flip phone|iphone|android)\b/i,
   /\b(laptop|notebook|ultrabook|gaming laptop|chromebook|macbook)\b/i,
   /\b(tablet|ipad|android tablet|e-reader|kindle)\b/i,
@@ -78,6 +79,20 @@ const ELECTRONICS_RE = [
   /\b(power bank|charger|ssd|hard disk|hdd|pendrive|memory card|router|wifi)\b/i,
   /\b(gaming|console|playstation|xbox|nintendo|controller|gpu|graphics card|cpu|processor|ram|motherboard)\b/i,
   /\b(printer|scanner|ups|stabilizer|extension board|smart home|smart plug|smart bulb)\b/i,
+  // Hindi / Devanagari keywords for electronics
+  /मोबाइल|फ़ोन|फोन|स्मार्टफोन|लैपटॉप|टीवी|टेलीविज़न|एसी|फ्रिज|रेफ्रिजरेटर|वाशिंग मशीन|ईयरबड्स|हेडफोन|स्पीकर|स्मार्टवॉच|कैमरा|माइक्रोवेव|प्यूरीफायर|गीज़र|राउटर|टैबलेट/,
+  // Hinglish / transliterated common terms
+  /\b(mobile phone|mobile ka|phone kaun|kaun sa phone|best phone|phone under|laptop under|tv under|ac under|phone lena|smartphone lena|fon|phon)\b/i,
+  // Tamil keywords
+  /மொபைல்|ஃபோன்|லேப்டாப்|தொலைக்காட்சி|குளிரூட்டி|குளிர்சாதனப்பெட்டி/,
+  // Telugu keywords
+  /మొబైల్|ఫోన్|ల్యాప్టాప్|టీవీ|ఫ్రిజ్|వాషింగ్ మెషీన్/,
+  // Bengali keywords
+  /মোবাইল|ফোন|ল্যাপটপ|টিভি|ফ্রিজ|এসি/,
+  // Kannada keywords
+  /ಮೊಬೈಲ್|ಫೋನ್|ಲ್ಯಾಪ್ಟಾಪ್|ಟಿವಿ|ಫ್ರಿಜ್/,
+  // Malayalam keywords
+  /മൊബൈൽ|ഫോൺ|ലാപ്ടോപ്|ടിവി|ഫ്രിഡ്ജ്/,
 ]
 const NON_ELECTRONICS_RE = [
   /\b(recipe|food|restaurant|hotel|travel|flight|visa|insurance|mutual fund|stock market|loan|credit card)\b/i,
@@ -85,9 +100,22 @@ const NON_ELECTRONICS_RE = [
   /\b(book|novel|fiction|textbook|comic|magazine)\b/i,
   /\b(medicine|doctor|hospital|health advice|diet|nutrition)\b/i,
   /\b(school|college|university|course|exam|career|job|salary|internship)\b/i,
+  // Hindi non-electronics (food, clothes, travel)
+  /खाना|रेसिपी|कपड़े|साड़ी|कुर्ता|होटल|यात्रा|उड़ान|किताब|दवाई|डॉक्टर|नौकरी|वेतन/,
 ]
 
 function isElectronics(q: string): boolean {
+  // Fast-pass: price mention + Indian language script = almost certainly an electronics query
+  const hasPriceAndScript = (
+    /[₹]|\d+k\b|hazar|हज़ार|हजार|thousand|budget|under|के अंदर|से कम|\d{4,}/.test(q) &&
+    /[\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F\u0980-\u09FF\u0C80-\u0CFF\u0D00-\u0D7F]/.test(q)
+  )
+  if (hasPriceAndScript) return true
+
+  // Hinglish fast-pass: common buying intent phrases
+  if (/\b(best|kaun|kaunsa|konsa|lena|kharidna|suggest|recommend|batao|bataiye|chahiye)\b/i.test(q) &&
+      /\b(phone|mobile|laptop|tv|ac|fridge|earbuds|camera|watch)\b/i.test(q)) return true
+
   if (NON_ELECTRONICS_RE.some(p => p.test(q))) return false
   return ELECTRONICS_RE.some(p => p.test(q))
 }
