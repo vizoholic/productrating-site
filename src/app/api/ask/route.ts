@@ -71,12 +71,11 @@ export async function POST(req: NextRequest) {
     const sarvamKey  = process.env.SARVAM_API_KEY  || ''
     const openaiKey  = process.env.OPENAI_API_KEY  || ''
     const claudeKey  = process.env.ANTHROPIC_API_KEY || ''
-    const geminiKey  = process.env.GEMINI_API_KEY  || ''
+    // GEMINI removed — using OpenAI + Claude only
 
     const availableProviders = [
       openaiKey  ? 'OpenAI'    : null,
       claudeKey  ? 'Claude'    : null,
-      geminiKey  ? 'Gemini'    : null,
       sarvamKey  ? 'Sarvam'    : null,
     ].filter(Boolean)
 
@@ -107,7 +106,7 @@ export async function POST(req: NextRequest) {
         claudeKey  || undefined,
         geminiKey  || undefined,
       )
-      console.log(`[Route] result: provider=${result.provider_used} products=${result.aiProducts?.length} outOfScope=${result.isOutOfScope}`)
+      console.log(`[Route] provider=${result.provider_used} products=${result.aiProducts?.length} outOfScope=${result.isOutOfScope}`)
       return NextResponse.json(result)
     } catch (e) {
       console.error('[Route] runSearch error:', String(e))
