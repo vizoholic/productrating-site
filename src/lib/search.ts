@@ -101,12 +101,12 @@ type QueryType = 'simple' | 'compare' | 'complex'
 
 type ProviderPlan = {
   type: QueryType
-  primary: { provider: 'openai'|'claude'|'sarvam'; model: string }
-  fallbacks: Array<{ provider: 'openai'|'claude'|'sarvam'; model: string }>
+  primary: { provider: 'openai'|'claude'|'perplexity'|'sarvam'; model: string }
+  fallbacks: Array<{ provider: 'openai'|'claude'|'perplexity'|'sarvam'; model: string }>
 }
 
 function routeQuery(question: string, keys: {
-  openai?: string; claude?: string; sarvam?: string
+  openai?: string; claude?: string; perplexity?: string; sarvam?: string
 }): ProviderPlan {
   const isCompare = /\bcompare\b|\bvs\b|versus|difference between|which is better|should i buy|worth it/i.test(question)
   const isComplex = /expert|detailed analysis|pros and cons of all|comprehensive|in-depth/i.test(question)
@@ -114,10 +114,12 @@ function routeQuery(question: string, keys: {
 
   // Build available providers in preference order
   const available = {
-    openai_41:  keys.openai  ? { provider: 'openai'  as const, model: 'gpt-4.1'          } : null,
-    openai_52:  keys.openai  ? { provider: 'openai'  as const, model: 'gpt-5.2'           } : null,
-    claude:     keys.claude  ? { provider: 'claude'  as const, model: 'claude-sonnet-4-6' } : null,
-    sarvam:     keys.sarvam  ? { provider: 'sarvam'  as const, model: 'sarvam-m'          } : null,
+    // Perplexity sonar: web-search grounded → real launch dates, current product info
+    perplexity: keys.perplexity ? { provider: 'perplexity' as const, model: 'sonar'            } : null,
+    openai_41:  keys.openai     ? { provider: 'openai'      as const, model: 'gpt-4.1'          } : null,
+    openai_52:  keys.openai     ? { provider: 'openai'      as const, model: 'gpt-5.2'           } : null,
+    claude:     keys.claude     ? { provider: 'claude'      as const, model: 'claude-sonnet-4-6' } : null,
+    sarvam:     keys.sarvam     ? { provider: 'sarvam'      as const, model: 'sarvam-m'          } : null,
   }
 
   if (type === 'compare') {
@@ -128,9 +130,9 @@ function routeQuery(question: string, keys: {
       .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
     return { type, primary: primary!, fallbacks }
   } else {
-    // Simple: gpt-4.1 ideal (non-reasoning, clean JSON, fast), then Claude, then gpt-5.2, then Sarvam
-    const primary = available.openai_41 || available.claude || available.openai_52 || available.sarvam
-    const fallbacks = [available.claude, available.openai_52, available.sarvam]
+    // Simple: Perplexity first (web-grounded = real dates/prices), then OpenAI, then Claude
+    const primary = available.perplexity || available.openai_41 || available.claude || available.openai_52 || available.sarvam
+    const fallbacks = [available.openai_41, available.claude, available.openai_52, available.sarvam]
       .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
     return { type, primary: primary!, fallbacks }
   }
@@ -273,15 +275,36 @@ function buildSystemPrompt(lang: string, loc: string, monthYear: string, current
   const locationNote = loc ? `User location: ${loc}.` : ''
   return `You are ProductRating.in, India's most trusted electronics advisor. ${monthYear}.
 ${lang ? lang + '\n' : ''}${locationNote ? locationNote + '\n' : ''}
-Return ONLY valid JSON matching this exact structure — no text before or after:
+Return ONLY valid JSON — no text before or after:
 {
-  "answer": "<2 sentences of direct buying advice. No reasoning. No 'Okay' or 'Let me'. Start with the recommendation.>",
+  "answer": "<2 sentences of direct buying advice. No reasoning, no methodology. Just the recommendation.>",
   "products": [
-    {"name":"<full name with variant>","price":"<₹XX,XXX>","seller":"<Amazon|Flipkart|Croma>","rating":<3.5-4.8>,"platform_rating":<3.8-5.0>,"reviews":"<Xk>","badge":"Best Pick","score":<50-95>,"reason":"<one sentence why #1>","pros":["<pro1>","<pro2>"],"cons":["<con1>"],"avoid_if":"<who should skip>","successor_of":null,"launch_date_india":"<e.g. Jan 2025 or Q3 2024>","newer_version":{"name":"<newer model name if exists, else null>","reason":"<what is new/better>","price_approx":"<₹XX,XXX>"}},
-    {"name":"...","price":"...","seller":"...","rating":0.0,"platform_rating":0.0,"reviews":"...","badge":"Best Value","score":0,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null,"launch_date_india":"...","newer_version":null},
-    {"name":"...","price":"...","seller":"...","rating":0.0,"platform_rating":0.0,"reviews":"...","badge":"Budget Pick","score":0,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null,"launch_date_india":"...","newer_version":null}
+    {
+      "name": "<full product name with RAM/storage variant>",
+      "price": "—",
+      "seller": "Amazon",
+      "rating": <3.5-4.8>,
+      "platform_rating": <3.8-5.0>,
+      "reviews": "<combined count e.g. 28k>",
+      "badge": "Best Pick",
+      "score": <50-95>,
+      "reason": "<one sentence why #1 for this query>",
+      "pros": ["<specific factual pro>", "<specific factual pro>"],
+      "cons": ["<main real complaint from buyer reviews>"],
+      "avoid_if": "<who should not buy this>",
+      "successor_of": null,
+      "launch_date_india": "<ACCURATE month+year of India launch e.g. 'January 2025' — search if unsure>",
+      "newer_version": { "name": "<newer successor model if exists>", "reason": "<what improved>", "price_approx": "—" }
+    },
+    { "name":"...", "price":"—", "seller":"...", "rating":0.0, "platform_rating":0.0, "reviews":"...", "badge":"Best Value", "score":0, "reason":"...", "pros":["...","..."], "cons":["..."], "avoid_if":"...", "successor_of":null, "launch_date_india":"...", "newer_version":null },
+    { "name":"...", "price":"—", "seller":"...", "rating":0.0, "platform_rating":0.0, "reviews":"...", "badge":"Budget Pick", "score":0, "reason":"...", "pros":["...","..."], "cons":["..."], "avoid_if":"...", "successor_of":null, "launch_date_india":"...", "newer_version":null }
   ]
 }
+
+IMPORTANT RULES:
+• "price" field: Always set to "—" — real prices come from live shopping data, never hallucinate prices
+• "launch_date_india": MUST be accurate India launch date (not global). Search your knowledge carefully. Format: "Month Year" e.g. "January 2025". If unsure, write "2024" or "2025" as approximate year only.
+• "newer_version": Set to null if this IS the newest model. Populate only when a confirmed successor exists.
 
 SELECTION CRITERIA (apply internally, never describe in output):
 • Relevance: Exact match to query budget/category
@@ -293,9 +316,9 @@ SELECTION CRITERIA (apply internally, never describe in output):
 
 India ${monthYear}: iQOO Z9x, CMF Phone 2 Pro, Moto G96, Realme P4, Redmi 15 5G, Samsung A36, POCO X7
 Successor rule: Note 12/13→14/15 | M33/M34→M35 | Narzo 60→80 | iQOO Z7→Z9 | Nord CE 3→CE 4
-• launch_date_india: Month+Year of India launch (e.g. "January 2025", "Q3 2024"). Be accurate.
-• newer_version: If a newer model in the SAME series launched after this product, populate it. If this IS the newest, set to null.
-  Example: iQOO Z9x launched Jan 2025 → newer_version null (it IS newest). Redmi Note 13 → newer_version: {name:"Redmi Note 14 Pro 5G", reason:"Upgraded Snapdragon 7s Gen 3, better 50MP camera", price_approx:"₹22,999"}`
+• launch_date_india: CRITICAL — must be the INDIA launch date, not global date. India is often 1-3 months after global. Search your knowledge or web to verify. Format: "Month Year" (e.g. "January 2025"). Never guess — if uncertain write the year only (e.g. "2025").
+• newer_version: Only populate if you are CERTAIN a successor model exists and is available in India. Set to null if this IS the current/latest model. price_approx always "—".
+  Example: iQOO Z9x (India Jan 2025) → newer_version null (it IS the newest in Z series). Redmi Note 13 → newer_version: {name:"Redmi Note 14 Pro 5G", reason:"Upgraded chipset, better camera system", price_approx:"—"}`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -400,18 +423,77 @@ async function callSarvamChat(
 // UNIFIED PROVIDER DISPATCHER
 // ─────────────────────────────────────────────────────────────────────────────
 
-type ProviderKeys = { openai?:string; claude?:string; sarvam?:string }
+type ProviderKeys = { openai?:string; claude?:string; perplexity?:string; sarvam?:string }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PERPLEXITY — Sonar model with real-time web search
+// Uses OpenAI-compatible API format. Returns web-grounded answers with citations.
+// Best for: accurate India launch dates, current product availability, latest news
+// ─────────────────────────────────────────────────────────────────────────────
+async function callPerplexity(
+  systemPrompt: string, userMsg: string, apiKey: string
+): Promise<{ answer: string; products: unknown[] }> {
+  const model = 'sonar'  // Fast, web-grounded, cheap ($1/1M tokens + $5/1000 requests)
+  for (let attempt = 0; attempt <= 1; attempt++) {
+    try {
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMsg },
+          ],
+          max_tokens: 4000,
+          temperature: 0.2,
+          response_format: { type: 'json_object' },
+          // Perplexity-specific: search the web for grounded answers
+          search_domain_filter: [],  // no domain restriction
+          return_citations: false,   // don't need citations in output
+        }),
+      })
+      if (res.status === 429) { await new Promise(r => setTimeout(r, 3000)); continue }
+      const raw = await res.text()
+      console.log(`[Perplexity:${model}] status=${res.status} len=${raw.length}`)
+      if (!res.ok) {
+        console.error(`[Perplexity] HTTP ${res.status}: ${raw.slice(0, 300)}`)
+        return { answer: '', products: [] }
+      }
+      const d = JSON.parse(raw)
+      const content: string = d?.choices?.[0]?.message?.content || ''
+      if (!content) return { answer: '', products: [] }
+      // Strip markdown fences if present
+      const jsonStr = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+      const start = jsonStr.indexOf('{'); const end = jsonStr.lastIndexOf('}')
+      if (start < 0 || end < 0) {
+        console.error(`[Perplexity] No JSON found: ${content.slice(0, 200)}`)
+        return { answer: '', products: [] }
+      }
+      const parsed = JSON.parse(jsonStr.slice(start, end + 1))
+      const prods = Array.isArray(parsed.products) ? parsed.products : []
+      const answer = String(parsed.answer || '').trim()
+      console.log(`[Perplexity] answer="${answer.slice(0, 80)}" products=${prods.length}`)
+      return { answer, products: prods }
+    } catch (e) { console.error(`[Perplexity] attempt ${attempt + 1}:`, String(e)) }
+  }
+  return { answer: '', products: [] }
+}
 
 async function callProvider(
-  provider: 'openai'|'claude'|'sarvam',
+  provider: 'openai'|'claude'|'perplexity'|'sarvam',
   model: string,
   systemPrompt: string,
   userMsg: string,
   keys: ProviderKeys
 ): Promise<{ answer: string; products: unknown[] }> {
-  if (provider==='openai'  && keys.openai)  return callOpenAI(systemPrompt, userMsg, model, keys.openai)
-  if (provider==='claude'  && keys.claude)  return callClaude(systemPrompt, userMsg, model, keys.claude)
-  if (provider==='sarvam'  && keys.sarvam)  return callSarvamChat(systemPrompt, userMsg, keys.sarvam)
+  if (provider==='openai'      && keys.openai)      return callOpenAI(systemPrompt, userMsg, model, keys.openai)
+  if (provider==='claude'      && keys.claude)      return callClaude(systemPrompt, userMsg, model, keys.claude)
+  if (provider==='perplexity'  && keys.perplexity)  return callPerplexity(systemPrompt, userMsg, keys.perplexity)
+  if (provider==='sarvam'      && keys.sarvam)      return callSarvamChat(systemPrompt, userMsg, keys.sarvam)
   return { answer:'', products:[] }
 }
 
@@ -424,6 +506,7 @@ export async function runSearch(
   sarvamKey: string,
   openaiKey?: string,
   claudeKey?: string,
+  perplexityKey?: string,
 ): Promise<SearchResult> {
 
   if (!isElectronics(question)) {
@@ -439,11 +522,11 @@ export async function runSearch(
   const lang = detectLang(question)
   const loc = getLocation(city, state)
 
-  const keys: ProviderKeys = { openai:openaiKey, claude:claudeKey, sarvam:sarvamKey }
+  const keys: ProviderKeys = { openai:openaiKey, claude:claudeKey, perplexity:perplexityKey, sarvam:sarvamKey }
   const plan = routeQuery(question, keys)
 
   console.log(`[Search] type=${plan.type} primary=${plan.primary?.provider}:${plan.primary?.model} loc="${loc||'India'}"`)
-  console.log(`[Search] keys: openai=${!!openaiKey} claude=${!!claudeKey} sarvam=${!!sarvamKey}`)
+  console.log(`[Search] keys: openai=${!!openaiKey} claude=${!!claudeKey} perplexity=${!!perplexityKey} sarvam=${!!sarvamKey}`)
 
   // SERP — live prices from Google Shopping
   let serpResult: SerpSearchResult = { products:[], relatedSearches:[], query:question }
