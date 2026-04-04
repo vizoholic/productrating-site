@@ -71,12 +71,13 @@ export async function POST(req: NextRequest) {
     const sarvamKey  = process.env.SARVAM_API_KEY  || ''
     const openaiKey  = process.env.OPENAI_API_KEY  || ''
     const claudeKey  = process.env.ANTHROPIC_API_KEY || ''
-    // GEMINI removed — using OpenAI + Claude only
+    const perplexityKey = process.env.PERPLEXITY_API_KEY || ''
 
     const availableProviders = [
-      openaiKey  ? 'OpenAI'    : null,
-      claudeKey  ? 'Claude'    : null,
-      sarvamKey  ? 'Sarvam'    : null,
+      perplexityKey ? 'Perplexity' : null,
+      openaiKey     ? 'OpenAI'     : null,
+      claudeKey     ? 'Claude'     : null,
+      sarvamKey     ? 'Sarvam'     : null,
     ].filter(Boolean)
 
     console.log(`[Route] Providers available: ${availableProviders.join(', ') || 'NONE'}`)
@@ -102,8 +103,9 @@ export async function POST(req: NextRequest) {
       const result = await runSearch(
         question, city, state,
         sarvamKey,
-        openaiKey  || undefined,
-        claudeKey  || undefined,
+        openaiKey      || undefined,
+        claudeKey      || undefined,
+        perplexityKey  || undefined,
       )
       console.log(`[Route] provider=${result.provider_used} products=${result.aiProducts?.length} outOfScope=${result.isOutOfScope}`)
       return NextResponse.json(result)
