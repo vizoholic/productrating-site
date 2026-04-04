@@ -535,246 +535,113 @@ async function callOpenAI(
 ): Promise<{ answer: string; products: unknown[] }> {
 
   const cityProfile = getCityProfile(loc)
-  const yr = currentYear
+  const locationNote = cityProfile
+    ? `User is in ${cityProfile.label}. Climate: ${cityProfile.climate}. Water: ${cityProfile.water_tds}. Power: ${cityProfile.power}. Prioritise: ${cityProfile.boost.slice(0,3).join(', ')}.`
+    : loc ? `User location: ${loc}.` : ''
 
-  const cityBlock = cityProfile ? `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LOCATION: ${cityProfile.label.toUpperCase()}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Climate: ${cityProfile.climate} (peak ${cityProfile.peak_temp}°C)
-Humidity: ${cityProfile.humidity} | Water TDS: ${cityProfile.water_tds}
-Power stability: ${cityProfile.power} | Air quality: ${cityProfile.aqi}
-Service centre availability: ${cityProfile.service_hub ? 'Major hub — all brands present' : 'Limited — pan-India service network critical'}
-Trusted service brands in ${cityProfile.label}: ${cityProfile.best_brands_service.join(', ')}
+  // ── SYSTEM PROMPT: Criteria first, JSON output immediately ──
+  // Do NOT use phase/step structure — causes model to reason in the answer field
+  const systemPrompt = `You are ProductRating.in, India's most trusted electronics advisor. ${monthYear}.
+${lang ? lang + '\n' : ''}${locationNote ? locationNote + '\n' : ''}
 
-LOCATION SCORING ADJUSTMENTS:
-+4 pts each if product has: ${cityProfile.boost.join(' | ')}
--4 pts each if product lacks: ${cityProfile.penalty.join(' | ')}
--5 pts if brand has NO authorised service centre in/near ${cityProfile.label}
-` : (loc ? `Location: ${loc} — apply relevant India regional adjustments for climate, power, water quality.` : `No specific location — recommend for all-India use.`)
-
-  const systemPrompt = `You are ProductRating.in — India's most trusted electronics scoring engine. Today: ${monthYear}.
-${lang ? lang + '\n' : ''}
-
-══════════════════════════════════════════════════════════════════
-PRODUCTRATING ALGORITHM v4.0 — ${ALGORITHM_VERSION}
-Target: Find the 3 BEST electronics products for this exact query
-══════════════════════════════════════════════════════════════════
-
-⚠️  CRITICAL OUTPUT RULES:
-1. The "answer" field must be 2-3 sentences of DIRECT BUYING ADVICE — no thinking, no methodology explanation
-2. Do NOT start answer with "Okay", "Let me", "I need to", "The user wants", "First I will" or any reasoning language
-3. The answer should read like a confident expert recommendation, e.g.: "For under ₹20,000, the iQOO Z9x leads on performance while Redmi Note 14 Pro wins on camera. Both are 2025 models worth considering."
-4. All reasoning happens internally — NEVER put it in the answer field
-
-PHASE 1 — CANDIDATE GENERATION (8–15 products)
-───────────────────────────────────────────────
-Generate a candidate pool from:
-  A) Live SERP data provided below (ground truth for current Indian prices)
-  B) Your own knowledge of Indian electronics market as of ${monthYear}
-Include DIVERSE candidates — different brands, price points, positioning.
-Do NOT pre-select — generate broadly, let scoring pick the best.
-
-PHASE 2 — MULTI-FACTOR SCORING (max 100 pts)
-─────────────────────────────────────────────
-Score each candidate. Weights tuned for this category (${cat}):
-
-[F1] RELEVANCE: ${weights.relevance} pts max
-  • Exact match (right category + budget + use case + specs): full score
-  • Minor mismatch (<10% budget gap, minor spec gap): 70% of score
-  • Partial match: 40% of score
-  • Wrong category → EXCLUDE (0 pts, skip)
-
-[F2] RECENCY: ${weights.recency} pts max
-  • ${yr} launch = ${weights.recency} pts (current year = full)
-  • ${yr-1} launch = ${Math.round(weights.recency*0.85)} pts
-  • ${yr-2} launch = ${Math.round(weights.recency*0.55)} pts
-  • ${yr-3} launch = ${Math.round(weights.recency*0.25)} pts
-  • Older = 0 pts — UNLESS Evergreen Exception applies
-
-  ▸ EVERGREEN EXCEPTION (max ${Math.round(weights.recency*0.65)} pts):
-    Older product may score if ALL 3 true:
-    ✓ Still sold NEW on Amazon.in/Flipkart (not just resellers)
-    ✓ 30,000+ combined reviews across all platforms
-    ✓ Specs still genuinely competitive at that price in ${yr}
-
-  ▸ SUCCESSOR UPGRADE RULE (MANDATORY):
-    If any candidate is from 2022–2023 AND its series has launched a ${yr}/${yr-1}
-    successor → REPLACE it with the successor in your candidate list.
-    Inherit the series popularity: give successor +5 pts recency bonus.
-    In "successor_of" field: name the older model that was popular.
-    This ensures we ALWAYS recommend current models, not outdated ones.
-
-    VERIFIED SUCCESSOR PAIRS (apply across all categories):
-    Phones: Redmi Note 12/13→Note 14/15 | M33/M34→M35/M55 | Narzo 60x→Narzo 80
-            iQOO Z7→Z9/Z9x | Nord CE 3→CE 4 | POCO M5/M6→M7 | A34→A36 | Moto G73→G96
-    Laptops: 12th gen i5/i7→Core Ultra 5/7 | Ryzen 5xxx→Ryzen 8000 series
-    TVs: Samsung BU/CU 2022→DU 2024 | LG NanoCell 2022→2024 | Sony X74K→X75L
-    ACs: LG Dual Inverter 2021/2022→2024 gen | Daikin FTKF→FTKP 2024
-    Audio: WF-1000XM4→XM5 | Galaxy Buds 2→Buds 3 | Nothing Ear 2→Ear (a) | CMF Buds Pro→Pro 2
-    Watches: Galaxy Watch 4/5→Watch 7 | CMF Watch Pro→Pro 2 | GTR 3→GTR 4
-
-[F3] CROSS-PLATFORM REVIEW VOLUME: ${weights.review_volume} pts max
-  Aggregate reviews from ALL Indian platforms (use estimates if exact unavailable):
-    Amazon.in (weight ×1.00) + Flipkart (×0.90) + Croma (×0.95) +
-    Reliance Digital (×0.95) + Vijay Sales (×0.95) + Tata Cliq (×0.90) +
-    Meesho/JioMart (×0.60 — high fake risk)
-
-  Combined weighted count → score:
-    60,000+  → ${weights.review_volume} pts (very high confidence)
-    30,000–59,999 → ${Math.round(weights.review_volume*0.82)} pts
-    12,000–29,999 → ${Math.round(weights.review_volume*0.62)} pts
-    4,000–11,999  → ${Math.round(weights.review_volume*0.40)} pts
-    1,000–3,999   → ${Math.round(weights.review_volume*0.20)} pts
-    <1,000        → 0 pts (insufficient India market data)
-
-  FAKE REVIEW PENALTY (deduct from F3 score):
-    -5 pts: >85% 5-star with almost no negative reviews (impossible pattern)
-    -5 pts: Spike of 8,000+ reviews in launch week 1 (paid campaign)
-    -4 pts: Brand known for aggressive paid review campaigns
-    -3 pts: Single-review-account pattern detected in review breakdown
-
-[F4] PR SCORE (Fake-Adjusted Weighted Rating): ${weights.pr_score} pts max
-  Step A: Weighted avg rating = Σ(platform_rating × weight × review_count) ÷ Σ(weight × review_count)
-          This is "platform_rating" — what Amazon/Flipkart show combined
-  
-  Step B: Subtract fake inflation → PR Score ("rating" field):
-    • Samsung/Sony/LG/Apple/Motorola flagship/Bose/Sennheiser: subtract 0.10–0.15
-    • Redmi/Vivo/OnePlus/Realme flagship/iQOO/Nothing: subtract 0.20–0.30
-    • Budget Realme/Redmi/POCO/Infinix/Tecno: subtract 0.30–0.40
-    • boat/Noise/Boult/Zebronics/PTron/Truke: subtract 0.45–0.65
-    • Launch-week spike brands: additional −0.15
-  
-  PR Score → score:
-    4.5+    → ${weights.pr_score} pts
-    4.2–4.49 → ${Math.round(weights.pr_score*0.82)} pts
-    4.0–4.19 → ${Math.round(weights.pr_score*0.60)} pts
-    3.7–3.99 → ${Math.round(weights.pr_score*0.35)} pts
-    <3.7     → 0 pts
-
-[F5] VALUE FOR MONEY: ${weights.value_for_money} pts max
-  Specs/features delivered per rupee vs category average in India:
-    Exceptional value (specs >> peers at same price): ${weights.value_for_money} pts
-    Good value (competitive specs for price): ${Math.round(weights.value_for_money*0.75)} pts
-    Average (fair): ${Math.round(weights.value_for_money*0.45)} pts
-    Poor (overpriced for specs): ${Math.round(weights.value_for_money*0.15)} pts
-
-[F6] INDIA SERVICE & WARRANTY: ${weights.service_warranty} pts max
-  After-sales for user's location (${loc || 'general India'}):
-    Authorised service centre in/near user city + 2yr+ warranty: ${weights.service_warranty} pts
-    Service in city + standard 1yr warranty: ${Math.round(weights.service_warranty*0.65)} pts
-    Service requires travel/courier: ${Math.round(weights.service_warranty*0.3)} pts
-    Poor India service network: 0 pts
-
-${cityBlock}
-
-TOTAL SCORE = F1+F2+F3+F4+F5+F6 (max 100).
-Tiebreaker: higher F4 (PR Score) wins.
-Select TOP 3 by score.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PHASE 3 — RESPONSE FORMAT (JSON ONLY, no other text)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OUTPUT FORMAT — respond with ONLY this JSON, nothing else before or after:
 {
-  "answer": "2-3 sentences of BUYING ADVICE ONLY — no reasoning, no thinking, no methodology. Just: what to buy, why, and key tradeoff for the user. Example: For under ₹20k in India, the iQOO Z9x leads on raw performance while Redmi Note 14 wins on camera. Both are 2025 models with strong service networks.",
+  "answer": "<2 sentences of direct buying advice for India. No reasoning. No 'okay' or 'let me'. Just the recommendation.>",
   "products": [
-    {
-      "name": "Full Product Name with variant/storage/colour",
-      "price": "₹XX,XXX",
-      "seller": "Amazon",
-      "rating": 4.2,
-      "platform_rating": 4.6,
-      "reviews": "52k",
-      "badge": "Best Pick",
-      "score": 87,
-      "reason": "Why #1 for this query in ${loc||'India'} — cite specific algorithm factors",
-      "pros": ["Specific factual pro relevant to ${loc||'India'}", "Specific factual pro 2"],
-      "cons": ["Main real complaint from Indian buyer reviews"],
-      "avoid_if": "Specific type of buyer who should not buy this",
-      "successor_of": null
-    },
-    { "name":"Second Product","price":"₹XX,XXX","seller":"Flipkart","rating":4.0,"platform_rating":4.4,"reviews":"31k","badge":"Best Value","score":79,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null },
-    { "name":"Third Product","price":"₹XX,XXX","seller":"Amazon","rating":3.8,"platform_rating":4.2,"reviews":"18k","badge":"Budget Pick","score":71,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null }
+    {"name":"<full name>","price":"<₹XX,XXX>","seller":"<Amazon|Flipkart|Croma>","rating":<3.5-4.8>,"platform_rating":<3.8-5.0>,"reviews":"<Xk>","badge":"<Best Pick|Best Value|Budget Pick>","score":<50-95>,"reason":"<one sentence why this wins>","pros":["<pro1>","<pro2>"],"cons":["<con1>"],"avoid_if":"<who should skip>","successor_of":null},
+    {"name":"...","price":"...","seller":"...","rating":0.0,"platform_rating":0.0,"reviews":"...","badge":"Best Value","score":0,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null},
+    {"name":"...","price":"...","seller":"...","rating":0.0,"platform_rating":0.0,"reviews":"...","badge":"Budget Pick","score":0,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null}
   ]
-}`
+}
 
-  const userMsg = `Question: ${question}` +
-    (loc ? `\nUser location: ${loc}` : '\nNo location provided — recommend for all-India use') +
-    (serpContext
-      ? `\n\nLive data from Indian shopping platforms (use as ground truth for current pricing and availability):\n${serpContext}\n\nStep 1: Generate 8–15 candidates combining live data + your India market knowledge.\nStep 2: Score each using the full algorithm.\nStep 3: Apply successor upgrades.\nStep 4: Return top 3 as JSON.`
-      : `\n\nNo live shopping data. Use your knowledge of Indian electronics market as of ${monthYear}.\nStep 1: Generate 8–15 candidates.\nStep 2: Score each. Step 3: Apply successor upgrades. Step 4: Return top 3 as JSON.`)
+SELECTION CRITERIA (apply internally, don't describe in output):
+• Relevance: Must match query budget and category exactly
+• Recency: Prefer ${currentYear} > ${currentYear-1} > ${currentYear-2} launches. Replace outdated models with their ${currentYear}/${currentYear-1} successors
+• Reviews: Combine Amazon.in + Flipkart counts. Budget brands (boat/Noise) inflate by 30%, deduct accordingly
+• PR Score: Platform rating minus fake inflation (0.1-0.5 deduction). PR Score always < platform_rating
+• Value: Specs per rupee vs India category average
+• Service: Prefer brands with authorised centres${cityProfile ? ' in ' + cityProfile.label : ' across India'}
+
+INDIA MARKET (${monthYear}): iQOO Z/Neo, CMF Phone 2 Pro, Moto G96/Edge 50, Realme P4/GT7, Redmi 14/15 5G, Samsung A36, POCO X7
+Successor rule: Redmi Note 12/13→14/15 | M33/M34→M35 | Narzo 60→Narzo 80 | iQOO Z7→Z9 | Nord CE 3→CE 4 | Moto G73→G96
+
+CRITICAL: The "answer" field must be 2 clean sentences of advice. Never start with "Okay", "Let me", "I need", "First", "Step" or any reasoning language.`
+
+  const userMsg = `Question: ${question}${loc ? `\nLocation: ${loc}` : ''}` +
+    (serpContext ? `\n\nLive prices from Indian platforms:\n${serpContext}` : '')
 
   for (let attempt = 0; attempt <= 2; attempt++) {
     try {
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method:'POST',
-        headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model,
-          messages:[{role:'system',content:systemPrompt},{role:'user',content:userMsg}],
+          messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMsg }],
           max_tokens: 4000,
           temperature: 0.25,
-          response_format: { type:'json_object' },
+          response_format: { type: 'json_object' },
         }),
       })
-      if (res.status===429) { if(attempt<2) await new Promise(r=>setTimeout(r,1000*(attempt+1))); continue }
+      if (res.status === 429) { if (attempt < 2) await new Promise(r => setTimeout(r, 1500 * (attempt + 1))); continue }
       const raw = await res.text()
       console.log(`[OpenAI:${model}] status=${res.status} len=${raw.length}`)
-      if (!res.ok) { console.error('[OpenAI]',raw.slice(0,300)); return {answer:'',products:[]} }
+      if (!res.ok) { console.error('[OpenAI] err:', raw.slice(0, 300)); return { answer: '', products: [] } }
       const d = JSON.parse(raw)
-      const content:string = d?.choices?.[0]?.message?.content||'{}'
-      console.log(`[OpenAI] preview: ${content.slice(0,200)}`)
+      const content: string = d?.choices?.[0]?.message?.content || '{}'
+      console.log(`[OpenAI] content[:200]: ${content.slice(0, 200)}`)
       const parsed = JSON.parse(content)
-      const prods = Array.isArray(parsed.products)?parsed.products:[]
-      console.log(`[OpenAI] products:${prods.length}`)
-
-      // Simple CoT strip — just remove "Advice:" prefix if present
-      const answer = String(parsed.answer||'').replace(/^(advice:|note:|summary:)\s*/i,'').trim()
-      console.log(`[OpenAI] answer len=${answer.length} products=${prods.length}`)
+      const prods = Array.isArray(parsed.products) ? parsed.products : []
+      const answer = String(parsed.answer || '').replace(/^(advice:|note:|okay[,.]?|let me|first,?|step \d)/i, '').trim()
+      console.log(`[OpenAI] answer="${answer.slice(0, 80)}" products=${prods.length}`)
       return { answer, products: prods }
-    } catch(e) {
-      console.error(`[OpenAI] attempt ${attempt+1}:`,String(e))
-      if(attempt<2) await new Promise(r=>setTimeout(r,1000))
+    } catch (e) {
+      console.error(`[OpenAI] attempt ${attempt + 1}:`, String(e))
+      if (attempt < 2) await new Promise(r => setTimeout(r, 1000))
     }
   }
-  return {answer:'',products:[]}
+  return { answer: '', products: [] }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SARVAM FALLBACK
-// ─────────────────────────────────────────────────────────────────────────────
-
-async function callSarvam(q:string, ctx:string, loc:string, lang:string, monthYear:string, apiKey:string): Promise<{answer:string;products:unknown[]}> {
-  const sp = `You are ProductRating.in electronics advisor. Today: ${monthYear}.${lang?' '+lang:''}${loc?' Location: '+loc+'.':''}
-Generate 8 candidate electronics products. Score each /100: Relevance(30)+Recency(20)+Cross-platform reviews across Amazon+Flipkart+Croma(20)+Fake-adjusted rating(15)+Value(10)+Service(5).
-Replace any 2022/2023 product with its 2024/2025 successor if available.
-Select top 3. Output: 2 sentences advice then ---PRODUCTS--- then JSON array of 3 with:
-name, price, seller(marketplace only), rating(PR Score after fake removal), platform_rating(weighted avg), reviews(combined count), badge, score, reason, pros(2), cons(1), avoid_if, successor_of(null or old model name)`
-  const um = `Q: ${q}${loc?' Location: '+loc:''}${ctx?'\n\nLive prices:\n'+ctx:''}`
-  for (let a=0;a<=3;a++) {
+// ── SARVAM FALLBACK ──
+async function callSarvam(q: string, serpCtx: string, loc: string, lang: string, monthYear: string, apiKey: string): Promise<{ answer: string; products: unknown[] }> {
+  const sp = `You are ProductRating.in electronics advisor. ${monthYear}.${lang ? ' ' + lang : ''}${loc ? ' Location: ' + loc + '.' : ''}
+Return ONLY this JSON (no other text):
+{"answer":"<2 sentences direct advice>","products":[{"name":"...","price":"₹XX,XXX","seller":"Amazon","rating":4.2,"platform_rating":4.6,"reviews":"22k","badge":"Best Pick","score":82,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null},{"name":"...","price":"₹XX,XXX","seller":"Flipkart","rating":4.0,"platform_rating":4.4,"reviews":"15k","badge":"Best Value","score":74,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null},{"name":"...","price":"₹XX,XXX","seller":"Amazon","rating":3.8,"platform_rating":4.2,"reviews":"9k","badge":"Budget Pick","score":66,"reason":"...","pros":["...","..."],"cons":["..."],"avoid_if":"...","successor_of":null}]}`
+  const um = `Question: ${q}${loc ? ' Location: ' + loc : ''}${serpCtx ? '\n\nLive prices:\n' + serpCtx : ''}`
+  for (let attempt = 0; attempt <= 3; attempt++) {
     try {
-      const res = await fetch('https://api.sarvam.ai/v1/chat/completions',{
-        method:'POST',headers:{'Content-Type':'application/json','api-subscription-key':apiKey},
-        body:JSON.stringify({model:'sarvam-m',messages:[{role:'system',content:sp},{role:'user',content:um}],max_tokens:2000,temperature:0.25}),
+      const res = await fetch('https://api.sarvam.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'api-subscription-key': apiKey },
+        body: JSON.stringify({ model: 'sarvam-m', messages: [{ role: 'system', content: sp }, { role: 'user', content: um }], max_tokens: 2000, temperature: 0.25 }),
       })
-      if (res.status===429){if(a<3) await new Promise(r=>setTimeout(r,Math.min(1000*Math.pow(2,a),8000)));continue}
-      if (!res.ok) return {answer:'',products:[]}
+      if (res.status === 429) { if (attempt < 3) await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(2, attempt), 8000))); continue }
+      if (!res.ok) return { answer: '', products: [] }
       const d = JSON.parse(await res.text())
-      let c:string=d?.choices?.[0]?.message?.content||''
-      let prev=''
-      while(prev!==c){prev=c;c=c.replace(/<think>[\s\S]*?<\/think>/gi,'')}
-      c=c.replace(/<\/?think[^>]*>/gi,'').trim()
-      const si=c.search(/---PRODUCTS---/i)
-      const answer=(si!==-1?c.slice(0,si):c.slice(0,400)).replace(/\*\*(.*?)\*\*/g,'$1').trim()
-      const jp=si!==-1?c.slice(si+15):c
-      const st=jp.indexOf('[');if(st===-1)return{answer,products:[]}
-      let depth=0,end=-1
-      for(let i=st;i<jp.length;i++){if(jp[i]==='[')depth++;else if(jp[i]===']'){depth--;if(depth===0){end=i;break}}}
-      if(end===-1)return{answer,products:[]}
-      try{return{answer,products:JSON.parse(jp.slice(st,end+1))}}catch{return{answer,products:[]}}
-    } catch(e){console.error(`[Sarvam] attempt ${a+1}:`,String(e));if(a<3) await new Promise(r=>setTimeout(r,1000))}
+      let c: string = d?.choices?.[0]?.message?.content || ''
+      // Strip think tags
+      let prev = ''
+      while (prev !== c) { prev = c; c = c.replace(/<think>[\s\S]*?<\/think>/gi, '') }
+      c = c.replace(/<\/?think[^>]*>/gi, '').trim()
+      // Try JSON parse directly
+      try {
+        const parsed = JSON.parse(c)
+        return { answer: String(parsed.answer || ''), products: Array.isArray(parsed.products) ? parsed.products : [] }
+      } catch {
+        // Fallback: look for JSON object in response
+        const start = c.indexOf('{'); const end = c.lastIndexOf('}')
+        if (start >= 0 && end > start) {
+          try {
+            const parsed = JSON.parse(c.slice(start, end + 1))
+            return { answer: String(parsed.answer || ''), products: Array.isArray(parsed.products) ? parsed.products : [] }
+          } catch { /* ignore */ }
+        }
+        return { answer: '', products: [] }
+      }
+    } catch (e) { console.error(`[Sarvam] attempt ${attempt + 1}:`, String(e)); if (attempt < 3) await new Promise(r => setTimeout(r, 1000)) }
   }
-  return{answer:'',products:[]}
+  return { answer: '', products: [] }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -782,101 +649,90 @@ name, price, seller(marketplace only), rating(PR Score after fake removal), plat
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function runSearch(
-  question:string, city='', state='',
-  sarvamKey:string, openaiKey?:string
+  question: string, city = '', state = '',
+  sarvamKey: string, openaiKey?: string
 ): Promise<SearchResult> {
 
-  // Scope gate
   if (!isElectronics(question)) {
-    return { answer:'', aiProducts:[], serpProducts:[], relatedSearches:[], isOutOfScope:true, algorithm_version:ALGORITHM_VERSION }
+    return { answer: '', aiProducts: [], serpProducts: [], relatedSearches: [], isOutOfScope: true, algorithm_version: ALGORITHM_VERSION }
   }
 
   const cacheKey = `${question.toLowerCase().trim()}|${city}|${state}`
   const hit = cache.get(cacheKey)
-  if (hit && Date.now()-hit.ts<CACHE_TTL) { console.log('[Search] cache hit'); return hit.result }
+  if (hit && Date.now() - hit.ts < CACHE_TTL) { console.log('[Search] cache hit'); return hit.result }
 
-  const monthYear=getMonthYear(), currentYear=getYear()
-  const lang=detectLang(question)
-  const loc=getLocation(city,state)
-  const model=selectModel(question)
-  const cat=detectCat(question)
-  const weights=getCategoryWeights(cat)
+  const monthYear = getMonthYear()
+  const currentYear = getYear()
+  const lang = detectLang(question)
+  const loc = getLocation(city, state)
+  const model = selectModel(question)
+  const cat = detectCat(question)
+  const weights = getCategoryWeights(cat)
 
-  console.log(`[Search] cat=${cat} model=${model} loc="${loc||'India-wide'}"`)
+  console.log(`[Search] cat=${cat} model=${model} loc="${loc || 'India-wide'}"`)
 
-  // SERP — live prices from Google Shopping
-  let serpResult:SerpSearchResult={products:[],relatedSearches:[],query:question}
-  try { serpResult=await searchGoogleShopping(question); console.log(`[SERP] ${serpResult.products.length}`) }
-  catch(e){console.error('[SERP]:',String(e))}
-  const serpContext=buildProductContext(serpResult)
+  let serpResult: SerpSearchResult = { products: [], relatedSearches: [], query: question }
+  try { serpResult = await searchGoogleShopping(question); console.log(`[SERP] ${serpResult.products.length}`) }
+  catch (e) { console.error('[SERP]:', String(e)) }
+  const serpContext = buildProductContext(serpResult)
 
-  // AI recommendation engine
-  let answer='', rawProducts:unknown[]=[]
+  let answer = '', rawProducts: unknown[] = []
 
   if (openaiKey) {
-    const r=await callOpenAI(question,serpContext,loc,lang,monthYear,currentYear,cat,weights,model,openaiKey)
-    answer=r.answer; rawProducts=r.products
-    // Auto-upgrade: if fast model returned nothing, retry with deep model
-    if((!answer||rawProducts.length===0)&&model!=='gpt-5.4'){
+    const r = await callOpenAI(question, serpContext, loc, lang, monthYear, currentYear, cat, weights, model, openaiKey)
+    answer = r.answer; rawProducts = r.products
+    if ((!answer || rawProducts.length === 0) && model !== 'gpt-5.4') {
       console.log('[Search] upgrading to gpt-5.4')
-      const r2=await callOpenAI(question,serpContext,loc,lang,monthYear,currentYear,cat,weights,'gpt-5.4',openaiKey)
-      if(r2.answer||r2.products.length>0){answer=r2.answer;rawProducts=r2.products}
+      const r2 = await callOpenAI(question, serpContext, loc, lang, monthYear, currentYear, cat, weights, 'gpt-5.4', openaiKey)
+      if (r2.answer || r2.products.length > 0) { answer = r2.answer; rawProducts = r2.products }
     }
   }
-  if(!answer&&rawProducts.length===0&&sarvamKey){
-    const r=await callSarvam(question,serpContext,loc,lang,monthYear,sarvamKey)
-    answer=r.answer;rawProducts=r.products
+
+  if (!answer && rawProducts.length === 0 && sarvamKey) {
+    console.log('[Search] Sarvam fallback')
+    const r = await callSarvam(question, serpContext, loc, lang, monthYear, sarvamKey)
+    answer = r.answer; rawProducts = r.products
   }
 
-  if(!answer&&rawProducts.length===0){
-    return{answer:'AI temporarily unavailable. Please try again.',aiProducts:[],serpProducts:serpResult.products,relatedSearches:serpResult.relatedSearches,algorithm_version:ALGORITHM_VERSION}
+  if (!answer && rawProducts.length === 0) {
+    return { answer: 'AI temporarily unavailable. Please try again.', aiProducts: [], serpProducts: serpResult.products, relatedSearches: serpResult.relatedSearches, algorithm_version: ALGORITHM_VERSION }
   }
 
-  // Sanitise AI products
-  let aiProducts:AiProduct[]=(rawProducts as Record<string,unknown>[])
-    .filter(p=>p&&typeof p.name==='string'&&p.name.length>2)
-    .slice(0,3).map(sanitise)
+  let aiProducts: AiProduct[] = (rawProducts as Record<string, unknown>[])
+    .filter(p => p && typeof p.name === 'string' && p.name.length > 2)
+    .slice(0, 3).map(sanitise)
 
-  // Run successor check on sanitised products
-  aiProducts=aiProducts.map(p=>{
-    const successor=checkSuccessor(p.name,cat)
-    if(successor&&!p.successor_of){
-      return{...p,successor_of:p.name,name:successor}
-    }
-    return p
-  })
-
-  // SERP fill if AI returned fewer than 3
-  if(aiProducts.length<3&&serpResult.products.length>0){
-    const used=new Set(aiProducts.map(p=>p.name.toLowerCase()))
-    const fill=serpResult.products
-      .filter(sp=>sp.title&&sp.price&&isMarketplace(sp.source)&&!used.has(sp.title.toLowerCase()))
-      .slice(0,3-aiProducts.length)
-      .map((sp,i):AiProduct=>({
-        name:sp.title,price:sp.price||'—',seller:normaliseMarketplace(sp.source),
-        rating:sp.rating?Math.min(4.8,Math.max(3.0,Number(sp.rating))):4.0,
-        platform_rating:sp.rating?Math.min(5.0,Number(sp.rating)+0.3):4.3,
-        reviews:'',badge:(['Best Pick','Best Value','Budget Pick'][aiProducts.length+i])||'Top Rated',
-        reason:`Top marketplace result for this query.`,
-        pros:['Competitive price in India','Available on verified platform'],
-        cons:['Compare full specs before buying'],
-        avoid_if:'If you need detailed AI analysis — try again shortly',
-        score:0,platform_prices:[],best_price:'',best_price_platform:'',best_price_url:'',
+  // SERP fill if fewer than 3
+  if (aiProducts.length < 3 && serpResult.products.length > 0) {
+    const used = new Set(aiProducts.map(p => p.name.toLowerCase()))
+    const fill = serpResult.products
+      .filter(sp => sp.title && sp.price && isMarketplace(sp.source) && !used.has(sp.title.toLowerCase()))
+      .slice(0, 3 - aiProducts.length)
+      .map((sp, i): AiProduct => ({
+        name: sp.title, price: sp.price || '—', seller: normaliseMarketplace(sp.source),
+        rating: sp.rating ? Math.min(4.8, Math.max(3.0, Number(sp.rating))) : 4.0,
+        platform_rating: sp.rating ? Math.min(5.0, Number(sp.rating) + 0.3) : 4.3,
+        reviews: '', badge: (['Best Pick', 'Best Value', 'Budget Pick'][aiProducts.length + i]) || 'Top Rated',
+        reason: `Top result on ${normaliseMarketplace(sp.source)} for this query.`,
+        pros: ['Competitive price', 'Available on major platform'],
+        cons: ['Compare specs before buying'],
+        avoid_if: 'If you need detailed AI analysis — try again shortly',
+        score: 0, platform_prices: [], best_price: '', best_price_platform: '', best_price_url: '',
       }))
-    aiProducts=[...aiProducts,...fill]
+    aiProducts = [...aiProducts, ...fill]
   }
 
-  // Price enrichment — Skyscanner-style cross-platform pricing
-  aiProducts=enrichPrices(aiProducts,serpResult.products)
+  // Enrich with real prices from SERP
+  aiProducts = enrichPrices(aiProducts, serpResult.products)
 
-  const result:SearchResult={
-    answer:answer||'Here are the top electronics options for India right now.',
-    aiProducts:aiProducts.slice(0,3),
-    serpProducts:serpResult.products,
-    relatedSearches:serpResult.relatedSearches,
-    location_used:loc||'India (no location)',
-    algorithm_version:ALGORITHM_VERSION,
+  const result: SearchResult = {
+    answer: answer || `Here are the top ${cat.replace('_', ' ')} options for India right now.`,
+    aiProducts: aiProducts.slice(0, 3),
+    serpProducts: serpResult.products,
+    relatedSearches: serpResult.relatedSearches,
+    location_used: loc || 'India',
+    algorithm_version: ALGORITHM_VERSION,
   }
-  cache.set(cacheKey,{result,ts:Date.now()})
+  cache.set(cacheKey, { result, ts: Date.now() })
   return result
 }
