@@ -115,10 +115,10 @@ function routeQuery(question: string, keys: {
   // Build available providers in preference order
   const available = {
     // Perplexity sonar: web-search grounded → real launch dates, current product info
-    perplexity: keys.perplexity ? { provider: 'perplexity' as const, model: 'sonar'            } : null,
+    perplexity: keys.perplexity ? { provider: 'perplexity' as const, model: 'sonar-pro'        } : null,
     openai_41:  keys.openai     ? { provider: 'openai'      as const, model: 'gpt-4.1'          } : null,
-    openai_52:  keys.openai     ? { provider: 'openai'      as const, model: 'gpt-5.2'           } : null,
-    claude:     keys.claude     ? { provider: 'claude'      as const, model: 'claude-sonnet-4-6' } : null,
+    openai_52:  keys.openai     ? { provider: 'openai'      as const, model: 'gpt-5.4'           } : null,
+    claude:     keys.claude     ? { provider: 'claude'      as const, model: 'claude-opus-4-6'   } : null,
     sarvam:     keys.sarvam     ? { provider: 'sarvam'      as const, model: 'sarvam-m'          } : null,
   }
 
@@ -433,7 +433,7 @@ type ProviderKeys = { openai?:string; claude?:string; perplexity?:string; sarvam
 async function callPerplexity(
   systemPrompt: string, userMsg: string, apiKey: string
 ): Promise<{ answer: string; products: unknown[] }> {
-  const model = 'sonar'  // Fast, web-grounded, cheap ($1/1M tokens + $5/1000 requests)
+  const model = 'sonar-pro'  // Latest Perplexity model: web search grounded, smarter reasoning
   for (let attempt = 0; attempt <= 1; attempt++) {
     try {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
