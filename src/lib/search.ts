@@ -314,11 +314,9 @@ SELECTION CRITERIA (apply internally, never describe in output):
 • Value: Specs per rupee vs India average
 • Service: Brands with India service centres${loc ? ' near ' + loc : ''}
 
-India ${monthYear}: iQOO Z9x, CMF Phone 2 Pro, Moto G96, Realme P4, Redmi 15 5G, Samsung A36, POCO X7
-Successor rule: Note 12/13→14/15 | M33/M34→M35 | Narzo 60→80 | iQOO Z7→Z9 | Nord CE 3→CE 4
-• launch_date_india: CRITICAL — must be the INDIA launch date, not global date. India is often 1-3 months after global. Search your knowledge or web to verify. Format: "Month Year" (e.g. "January 2025"). Never guess — if uncertain write the year only (e.g. "2025").
-• newer_version: Only populate if you are CERTAIN a successor model exists and is available in India. Set to null if this IS the current/latest model. price_approx always "—".
-  Example: iQOO Z9x (India Jan 2025) → newer_version null (it IS the newest in Z series). Redmi Note 13 → newer_version: {name:"Redmi Note 14 Pro 5G", reason:"Upgraded chipset, better camera system", price_approx:"—"}`
+• launch_date_india: The INDIA launch date (not global). India is typically 1-3 months after global launch. Use your web knowledge to verify accurately. Format: "Month Year" e.g. "January 2025". If genuinely uncertain, write year only e.g. "2025".
+• newer_version: Search your knowledge for whether a newer model in this exact product series exists and is sold in India. Set to null if this IS the current/latest model. If a confirmed successor exists, populate name + what improved. price_approx always "—".
+• Product selection: Always recommend the most current models available in India as of ${monthYear}. Do not recommend discontinued or replaced models when newer successors are available.`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
