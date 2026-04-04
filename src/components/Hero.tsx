@@ -86,35 +86,28 @@ export default function Hero() {
       <div style={{position:'relative',width:'100%',maxWidth:760,textAlign:'center'}}>
 
         {/* Badge — #11 medium weight, not bold */}
-        <div style={{display:'inline-flex',alignItems:'center',gap:7,marginBottom:36,animation:'fade-in 0.7s ease both'}}>
+        <div style={{display:'inline-flex',alignItems:'center',gap:7,marginBottom:28,animation:'fade-in 0.7s ease both'}}>
           <div style={{display:'flex',alignItems:'center',gap:7,background:'var(--accent-bg)',border:'1px solid var(--accent-border)',borderRadius:100,padding:'6px 18px'}}>
             <span style={{width:5,height:5,borderRadius:'50%',background:'var(--accent)',display:'inline-block',animation:'blink 2s infinite'}}/>
-            <span style={{fontSize:11,fontWeight:500,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>India's AI Electronics Advisor</span>
+            <span style={{fontSize:11,fontWeight:500,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>India's AI Product Intelligence</span>
           </div>
         </div>
 
-        {/* Electronics category strip */}
-        <div style={{display:'flex',flexWrap:'wrap',gap:8,justifyContent:'center',marginBottom:20,marginTop:4}}>
-          {['📱 Phones','💻 Laptops','📺 TVs','❄️ ACs','🎧 Audio','⌚ Watches','🧊 Fridges','🫧 Washing','📷 Cameras','🔊 Speakers'].map(cat=>(
-            <span key={cat} style={{fontSize:12,color:'var(--ink-3)',background:'rgba(91,79,207,0.06)',border:'1px solid rgba(91,79,207,0.15)',borderRadius:100,padding:'4px 12px',letterSpacing:'0.01em',fontWeight:400}}>{cat}</span>
-          ))}
-          <span style={{fontSize:12,color:'var(--ink-4)',background:'var(--bg-2)',border:'1px solid var(--border)',borderRadius:100,padding:'4px 12px',letterSpacing:'0.01em',fontWeight:400,fontStyle:'italic'}}>more coming soon</span>
-        </div>
 
-        {/* #3 HEADLINE — 10-15% bigger, controlled weight */}
+        {/* HEADLINE */}
         <h1 style={{
-          fontSize:'clamp(48px,8vw,90px)',
-          fontWeight:700,                       /* #11 not 800 — calmer */
-          lineHeight:1.04,
-          letterSpacing:'-2.5px',
+          fontSize:'clamp(44px,7vw,82px)',
+          fontWeight:700,
+          lineHeight:1.06,
+          letterSpacing:'-2px',
           color:'var(--ink)',
-          marginBottom:20,                      /* #2 spacing */
+          marginBottom:16,
           animation:'fade-up 0.7s 0.08s ease both',
           opacity:0,animationFillMode:'forwards'
         }}>
-          Product decisions,<br/>
+          Find the best.<br/>
           <span style={{background:'linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%)',WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent',backgroundClip:'text'}}>
-            rebuilt for India.
+            Skip the noise.
           </span>
         </h1>
 
@@ -126,11 +119,11 @@ export default function Hero() {
           lineHeight:1.8,
           letterSpacing:'0.025em',    /* #3 wider spacing */
           maxWidth:460,
-          margin:'0 auto 64px',
+          margin:'0 auto 48px',
           animation:'fade-up 0.7s 0.16s ease both',
           opacity:0,animationFillMode:'forwards'
         }}>
-          Phones · Laptops · TVs · ACs · Audio · Appliances &amp; more.<br/>Fake reviews removed. <strong>Electronics only</strong> — expanding soon.
+          AI-ranked electronics for India. Fake reviews removed.<br/><span style={{fontSize:13,color:'#9CA3AF',fontWeight:300}}>Electronics only — more categories coming soon</span>
         </p>
 
         {/* #8 SEARCH BAR — glassmorphism + glow */}
@@ -245,6 +238,17 @@ export default function Hero() {
               </button>
             ))}
           </div>
+
+          {/* Subtle electronics-only note below search */}
+          <div style={{marginTop:20,display:'flex',alignItems:'center',justifyContent:'center',gap:6,flexWrap:'wrap'}}>
+            <span style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>Electronics only now</span>
+            <span style={{width:3,height:3,borderRadius:'50%',background:'var(--ink-4)',opacity:0.4,display:'inline-block'}}/>
+            {['📱','💻','📺','❄️','🎧','⌚','📷','🔊'].map(e=>(
+              <span key={e} style={{fontSize:13,opacity:0.7}}>{e}</span>
+            ))}
+            <span style={{width:3,height:3,borderRadius:'50%',background:'var(--ink-4)',opacity:0.4,display:'inline-block'}}/>
+            <span style={{fontSize:11,color:'var(--accent)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',opacity:0.8}}>More coming</span>
+          </div>
         </div>
 
         {/* #2 STATS — more gap above, generous spacing between */}
@@ -256,7 +260,7 @@ export default function Hero() {
           animation:'fade-up 0.7s 0.4s ease both',
           opacity:0,animationFillMode:'forwards',
         }}>
-          {[['5M+','Reviews analysed'],['38%','Fake removed'],['12+','Categories'],['22','Indian languages']].map(([n,l])=>(
+          {[['5M+','Reviews scored'],['38%','Fake removed'],['12+','Categories'],['22','Languages']].map(([n,l])=>(
             <div key={l} style={{textAlign:'center',minWidth:80}}>
               {/* #3 big numerals */}
               <div style={{fontSize:'clamp(30px,4.5vw,42px)',fontWeight:700,color:'var(--ink)',letterSpacing:'-2px',lineHeight:1,fontFamily:'var(--font-sans)'}}>
