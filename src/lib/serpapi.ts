@@ -1,26 +1,31 @@
 // src/lib/serpapi.ts
-// Google Shopping via SerpAPI — extracts full product metadata for enriched UI
-// Review counts, images, ratings, deals, delivery — all from live marketplace data
+// Google Shopping via SerpAPI — pulls FULL product metadata for rich UI
+// Price, image (800×800 via thumbnail_large), reviews, rating, deal tag, delivery
+// All from live marketplace data. SerpAPI docs: https://serpapi.com/shopping-results
 
 export type SerpProduct = {
   title: string
-  link: string            // direct product URL on marketplace
-  source: string          // "Amazon.in" | "Flipkart" | "Croma" | etc
-  price: string           // display "₹18,999"
-  price_numeric: number   // 18999
-  rating?: number         // 1-5 marketplace rating
-  reviews?: number        // real review count (integer)
-  thumbnail?: string      // product image URL (jpg/png)
-  tag?: string            // "SALE · 17% OFF" | "DEAL" | "FREE SHIPPING"
-  delivery?: string       // "Free delivery" | "Delivered in 2 days"
+  link: string                  // direct product URL on marketplace
+  source: string                // "Amazon.in" | "Flipkart" | "Croma" | etc
+  price: string                 // display "₹18,999"
+  price_numeric: number         // 18999
+  old_price?: string            // original price before discount
+  old_price_numeric?: number
+  rating?: number               // 1-5 marketplace rating
+  reviews?: number              // real review count (integer)
+  thumbnail?: string            // product image URL (jpg/png, low-res fallback)
+  thumbnail_large?: string      // new as of Apr 2026: up to 800×800
+  tag?: string                  // "17% OFF" | "DEAL" | "SALE"
+  badge?: string                // "Best Seller" | "Amazon's Choice"
+  delivery?: string             // "Free delivery" | "2 days"
   product_id?: string
+  product_link?: string         // Google Shopping product page
 }
 
 export type SerpSearchResult = {
   products: SerpProduct[]
   relatedSearches: string[]
   query: string
-  filters?: Array<{ type: string; options: string[] }>
 }
 
 const SERP_API_URL = 'https://serpapi.com/search'
@@ -32,7 +37,7 @@ const SERP_API_URL = 'https://serpapi.com/search'
 export async function searchGoogleShopping(query: string): Promise<SerpSearchResult> {
   const apiKey = process.env.SERPAPI_API_KEY || ''
   if (!apiKey) {
-    console.error('[SERP] SERPAPI_API_KEY missing')
+    console.error('[SERP] SERPAPI_API_KEY missing — skipping live data')
     return { products: [], relatedSearches: [], query }
   }
 
@@ -43,18 +48,29 @@ export async function searchGoogleShopping(query: string): Promise<SerpSearchRes
     google_domain: 'google.co.in',
     gl: 'in',
     hl: 'en',
-    num: '40',  // fetch more results so we have enough matches per AI product
+    num: '40',
     api_key: apiKey,
   })
 
   try {
+    const start = Date.now()
     const res = await fetch(`${SERP_API_URL}?${params}`, { method: 'GET' })
+    const elapsed = Date.now() - start
     if (!res.ok) {
-      console.error(`[SERP] HTTP ${res.status}`)
+      console.error(`[SERP] HTTP ${res.status} for "${query}" (${elapsed}ms)`)
       return { products: [], relatedSearches: [], query }
     }
     const data = await res.json()
-    return parseShoppingResults(data, query)
+    const result = parseShoppingResults(data, query)
+    console.log(`[SERP] "${query}" → ${result.products.length} products, ${elapsed}ms`)
+    // Sample first 3 products to logs so we can verify SERP returns
+    if (result.products.length > 0) {
+      const sample = result.products.slice(0, 3).map(p =>
+        `${p.source}:${p.price}${p.thumbnail_large || p.thumbnail ? '[img]' : '[noimg]'}${p.reviews ? ` ${p.reviews}rv` : ''}`
+      ).join(' | ')
+      console.log(`[SERP] sample: ${sample}`)
+    }
+    return result
   } catch (e) {
     console.error('[SERP] fetch error:', String(e))
     return { products: [], relatedSearches: [], query }
@@ -62,7 +78,7 @@ export async function searchGoogleShopping(query: string): Promise<SerpSearchRes
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PARSER — extract all useful fields
+// PARSER
 // ─────────────────────────────────────────────────────────────────────────────
 
 function parseShoppingResults(data: Record<string, unknown>, query: string): SerpSearchResult {
@@ -75,7 +91,7 @@ function parseShoppingResults(data: Record<string, unknown>, query: string): Ser
     if (p) products.push(p)
   }
 
-  // Secondary: inline_shopping_results (sometimes appears)
+  // Secondary: inline_shopping_results
   const inline = (data.inline_shopping_results as Record<string, unknown>[]) || []
   for (const r of inline) {
     const p = extractProduct(r)
@@ -86,7 +102,6 @@ function parseShoppingResults(data: Record<string, unknown>, query: string): Ser
   const rs = (data.related_searches as Array<{ query?: string }>) || []
   const relatedSearches = rs.map(r => String(r.query || '')).filter(Boolean).slice(0, 8)
 
-  console.log(`[SERP] Parsed ${products.length} products, ${relatedSearches.length} related`)
   return { products, relatedSearches, query }
 }
 
@@ -98,9 +113,14 @@ function extractProduct(r: Record<string, unknown>): SerpProduct | null {
 
   if (!title || !priceStr) return null
 
-  // Parse numeric price
+  // Parse numeric price — prefer extracted_price, fallback to regex
   const priceNum = Number(r.extracted_price) || parseInt(priceStr.replace(/[^\d]/g, '')) || 0
   if (priceNum === 0) return null
+
+  // Old price (before discount)
+  const oldPriceStr = r.old_price ? String(r.old_price).trim() : undefined
+  const oldPriceNum = r.extracted_old_price ? Number(r.extracted_old_price) :
+                      (oldPriceStr ? parseInt(oldPriceStr.replace(/[^\d]/g, '')) || undefined : undefined)
 
   // Rating (1-5)
   let rating: number | undefined
@@ -109,50 +129,60 @@ function extractProduct(r: Record<string, unknown>): SerpProduct | null {
     if (!isNaN(rNum) && rNum >= 1 && rNum <= 5) rating = rNum
   }
 
-  // Reviews — this is the KEY field for accurate review counts
+  // Reviews — KEY field for accurate review counts
   let reviews: number | undefined
   if (r.reviews !== undefined && r.reviews !== null) {
     const rvNum = Number(r.reviews)
     if (!isNaN(rvNum) && rvNum >= 0) reviews = rvNum
   }
 
-  // Thumbnail image
+  // Thumbnail — prefer thumbnail_large (800×800, new Apr 2026), fallback to thumbnail
   let thumbnail: string | undefined
+  let thumbnailLarge: string | undefined
+  if (typeof r.thumbnail_large === 'string') thumbnailLarge = r.thumbnail_large as string
   if (typeof r.thumbnail === 'string') thumbnail = r.thumbnail
-  else if (Array.isArray(r.thumbnails) && typeof r.thumbnails[0] === 'string') thumbnail = r.thumbnails[0] as string
+  else if (Array.isArray(r.thumbnails) && typeof (r.thumbnails as unknown[])[0] === 'string') {
+    thumbnail = (r.thumbnails as string[])[0]
+  }
 
-  // Deal tag / discount
+  // Deal tag
   let tag: string | undefined
   if (typeof r.tag === 'string') tag = r.tag
-  else if (typeof r.extensions === 'object' && Array.isArray((r.extensions as unknown[]))) {
+  else if (Array.isArray(r.extensions)) {
     const exts = r.extensions as string[]
     const dealExt = exts.find(e => /deal|off|%|sale/i.test(String(e)))
     if (dealExt) tag = String(dealExt)
   }
 
-  // Delivery info
+  // Badge ("Best Seller", "Amazon's Choice")
+  const badge = typeof r.badge === 'string' ? r.badge : undefined
+
+  // Delivery
   let delivery: string | undefined
   if (typeof r.delivery === 'string') delivery = r.delivery
   else if (typeof r.shipping === 'string') delivery = r.shipping
-
-  const productId = r.product_id ? String(r.product_id) : undefined
 
   return {
     title, link, source,
     price: priceStr,
     price_numeric: priceNum,
-    rating, reviews, thumbnail, tag, delivery,
-    product_id: productId,
+    old_price: oldPriceStr,
+    old_price_numeric: oldPriceNum,
+    rating, reviews,
+    thumbnail, thumbnail_large: thumbnailLarge,
+    tag, badge, delivery,
+    product_id: r.product_id ? String(r.product_id) : undefined,
+    product_link: r.product_link ? String(r.product_link) : undefined,
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PROMPT CONTEXT BUILDER — for AI to see live pricing
+// AI PROMPT CONTEXT
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function buildProductContext(result: SerpSearchResult): string {
   if (result.products.length === 0) return ''
-  const top = result.products.slice(0, 15)  // top 15 for context
+  const top = result.products.slice(0, 15)
   const lines = top.map((p, i) => {
     const rating = p.rating ? ` ${p.rating}★` : ''
     const reviews = p.reviews ? ` (${formatCount(p.reviews)} reviews)` : ''
