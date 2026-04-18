@@ -6,7 +6,19 @@ import Nav from '@/components/Nav'
 
 type PlatformPrice = { platform:string; price:string; url:string; availability:string; isBrand?:boolean }
 type NewerVersion = { name:string; reason:string; price_approx:string }
-type AiProduct = { name:string; price:string; seller:string; rating:number; platform_rating:number; reviews:string; badge:string; reason:string; pros:string[]; cons:string[]; avoid_if:string; score?:number; platform_prices?:PlatformPrice[]; best_price?:string; best_price_platform?:string ; launch_date_india?:string; newer_version?:{name:string;reason:string;price_approx:string}|null }
+type AiProduct = {
+  name:string; price:string; seller:string;
+  rating:number; platform_rating:number;
+  reviews:string; reviews_count?:number; reviews_verified?:boolean;
+  badge:string; reason:string;
+  pros:string[]; cons:string[]; avoid_if:string;
+  score?:number;
+  launch_date_india?:string;
+  newer_version?:{name:string;reason:string;price_approx:string}|null;
+  image_url?:string; deal_tag?:string; delivery?:string; marketplace_rating?:number;
+  platform_prices?:PlatformPrice[];
+  best_price?:string; best_price_platform?:string;
+}
 type SerpProduct = { title:string; price:string; rating:number|null; source:string; link:string; thumbnail:string; delivery:string }
 
 // Normalise platform display — never show brand/manufacturer sites
@@ -87,6 +99,16 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
       <div style={{padding:'22px 22px 0',flex:1}}>
         {p.badge&&<span style={{display:'inline-block',fontSize:10,fontWeight:700,color:'#15803D',background:'rgba(22,163,74,0.08)',border:'1px solid rgba(22,163,74,0.25)',borderRadius:100,padding:'4px 14px',marginBottom:14,fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase'}}>● {p.badge}</span>}
 
+        {/* Product image from live SERP — shown when available */}
+        {p.image_url && (
+          <div style={{position:'relative',width:'100%',aspectRatio:'16/9',background:'#F8F7F4',borderRadius:12,overflow:'hidden',marginBottom:14,border:'1px solid rgba(0,0,0,0.06)'}}>
+            <img src={p.image_url} alt={p.name} style={{width:'100%',height:'100%',objectFit:'contain',padding:12}} loading="lazy"
+              onError={(e)=>{(e.currentTarget as HTMLImageElement).style.display='none'}}/>
+            {p.deal_tag && (
+              <div style={{position:'absolute',top:10,right:10,background:'#16A34A',color:'#fff',fontSize:10,fontWeight:700,fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',padding:'4px 10px',borderRadius:6,boxShadow:'0 2px 6px rgba(22,163,74,0.25)'}}>🔥 {p.deal_tag}</div>
+            )}
+          </div>
+        )}
         <h3 style={{fontWeight:700,fontSize:19,color:'#0D0D0C',lineHeight:1.25,letterSpacing:'-0.5px',marginBottom:14}}>{p.name}</h3>
 
           {/* Launch date badge */}
@@ -96,6 +118,12 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
 
         <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap'}}>
           <span style={{fontSize:30,fontWeight:800,color:isTop?'#4A3FBF':'#0D0D0C',letterSpacing:'-2px',fontFamily:'var(--font-sans)'}}>{p.price}</span>
+          {p.delivery && (
+            <span style={{fontSize:11,color:'#16A34A',fontFamily:'var(--font-mono)',fontWeight:500,letterSpacing:'0.3px',background:'rgba(22,163,74,0.08)',border:'1px solid rgba(22,163,74,0.2)',borderRadius:6,padding:'4px 10px',display:'inline-flex',alignItems:'center',gap:4}}>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7"/></svg>
+              {p.delivery}
+            </span>
+          )}
           
         </div>
 
@@ -103,7 +131,15 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
         <div style={{background:'#F4F3FF',borderRadius:14,padding:20,marginBottom:16,border:'1px solid rgba(91,79,207,0.12)'}}>
           <div style={{display:'flex',gap:18,alignItems:'flex-start',marginBottom:14}}>
             <div>
-              <div style={{fontSize:10,color:'var(--ink-2)',fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase',fontWeight:500,marginBottom:8}}>PR Score · {(p.reviews||'—').replace(/\s*\([^)]*\)/g,'')} reviews</div>
+              <div style={{fontSize:10,color:'var(--ink-2)',fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase',fontWeight:500,marginBottom:8,display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
+                <span>PR Score · {(p.reviews||'—').replace(/\s*\([^)]*\)/g,'')} reviews</span>
+                {p.reviews_verified && (
+                  <span title="Review count verified from live marketplace data" style={{display:'inline-flex',alignItems:'center',gap:3,background:'rgba(22,163,74,0.1)',color:'#16A34A',padding:'2px 6px',borderRadius:4,fontSize:9,fontWeight:600,letterSpacing:'0.3px'}}>
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>
+                    LIVE
+                  </span>
+                )}
+              </div>
               <RatingArc score={aiRating} size={60}/>
             </div>
             <div style={{flex:1,paddingTop:4}}>
@@ -200,7 +236,7 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
             <span style={{fontSize:10,color:'var(--green)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',fontWeight:600}}>Best price</span>
           </div>
           <span style={{fontSize:18,fontWeight:800,color:'var(--green)',letterSpacing:'-0.8px'}}>
-            {p.best_price || p.price}
+            {p.best_price && p.best_price !== '—' ? p.best_price : p.price !== '—' ? p.price : 'Check price'}
           </span>
         </div>
 
