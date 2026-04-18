@@ -426,11 +426,17 @@ async function enrichPrices(
       const spTokens = new Set(tokenize(sp.title))
 
       if (mustMatch.length > 0) {
+        // Match if ANY model-specific token hits (relaxed from 60% to catch more variants)
+        // Examples this now catches:
+        //   "Redmi 15 5G (8GB/128GB)" vs Amazon "Redmi 15 5G (Blue 6GB RAM 128GB)" — 15/5g/128gb match
+        //   "Motorola Edge 60 (8GB/256GB)" vs "Motorola Edge 60 Neo 8GB 256GB" — edge/60/8gb/256gb match
         const modelHits = mustMatch.filter(t => spTokens.has(t) || Array.from(spTokens).some(st => st.includes(t))).length
-        if (modelHits < Math.max(1, Math.ceil(mustMatch.length * 0.6))) return false
+        // Require at least 40% of mustMatch tokens (was 60%) — BUT always require the brand
+        if (modelHits < Math.max(1, Math.ceil(mustMatch.length * 0.4))) return false
       }
+      // Brand MUST match when we have mustMatch tokens (prevents cross-brand pollution)
       const brandHit = brandTokens.some(t => spTokens.has(t))
-      if (!brandHit && mustMatch.length === 0) return false
+      if (!brandHit) return false
       return true
     })
 
@@ -450,10 +456,11 @@ async function enrichPrices(
           // Looser matching for targeted query (already filtered by Google's own ranking)
           if (mustMatch.length > 0) {
             const modelHits = mustMatch.filter(t => spTokens.has(t) || Array.from(spTokens).some(st => st.includes(t))).length
-            if (modelHits < Math.max(1, Math.ceil(mustMatch.length * 0.5))) return false
+            // Targeted SERP is pre-filtered by Google; relax to 30%
+            if (modelHits < Math.max(1, Math.ceil(mustMatch.length * 0.3))) return false
           }
           const brandHit = brandTokens.some(t => spTokens.has(t))
-          if (!brandHit && mustMatch.length === 0) return false
+          if (!brandHit) return false
           return true
         })
         targetedMatchCount = targeted.length
@@ -873,11 +880,46 @@ async function callPerplexity(
           model,
           messages: [
             { role: 'system', content: perplexitySystem },
-            { role: 'user', content: userMsg + '\n\nRespond with JSON only, starting with {' },
+            { role: 'user', content: userMsg + '\n\nRespond with a JSON object matching the schema.' },
           ],
           max_tokens: 4000,
           temperature: 0.1,  // Very low for strict JSON compliance
-          response_format: { type: 'json_object' },
+          // Strict JSON schema — enforces Perplexity to return exactly this shape
+          // (json_object type is a loose hint; json_schema is enforced)
+          response_format: {
+            type: 'json_schema',
+            json_schema: {
+              schema: {
+                type: 'object',
+                properties: {
+                  answer: { type: 'string' },
+                  products: {
+                    type: 'array',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        name: { type: 'string' },
+                        price: { type: 'string' },
+                        seller: { type: 'string' },
+                        rating: { type: 'number' },
+                        platform_rating: { type: 'number' },
+                        reviews: { type: 'string' },
+                        badge: { type: 'string' },
+                        reason: { type: 'string' },
+                        pros: { type: 'array', items: { type: 'string' } },
+                        cons: { type: 'array', items: { type: 'string' } },
+                        launch_date_india: { type: 'string' },
+                        price_min_expected: { type: 'number' },
+                        price_max_expected: { type: 'number' },
+                      },
+                      required: ['name', 'reason'],
+                    },
+                  },
+                  out_of_scope: { type: 'boolean' },
+                },
+              },
+            },
+          },
           search_recency_filter: 'month',
           return_citations: false,
           return_images: false,
