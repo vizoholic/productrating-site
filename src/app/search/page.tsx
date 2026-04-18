@@ -236,7 +236,9 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
             <span style={{fontSize:10,color:'var(--green)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',fontWeight:600}}>Best price</span>
           </div>
           <span style={{fontSize:18,fontWeight:800,color:'var(--green)',letterSpacing:'-0.8px'}}>
-            {p.best_price && p.best_price !== '—' ? p.best_price : p.price !== '—' ? p.price : 'Check price'}
+            {p.best_price || (p.price && p.price !== '—' ? p.price : null) || (
+              <span style={{fontSize:13,color:'var(--accent)',fontWeight:600}}>Check price →</span>
+            )}
           </span>
         </div>
 
@@ -266,8 +268,12 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
                     {isLowest && <span style={{fontSize:9,color:'var(--green)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',background:'rgba(22,163,74,0.1)',padding:'2px 6px',borderRadius:4}}>LOWEST</span>}
                   </div>
                   <div style={{display:'flex',alignItems:'center',gap:8}}>
-                    <span style={{fontSize:14,fontWeight:700,color:isLowest?'var(--green)':'var(--ink-2)',letterSpacing:'-0.5px'}}>{pp.price}</span>
-                    {!isLowest && diff > 0 && <span style={{fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)'}}>+₹{diff.toLocaleString('en-IN')}</span>}
+                    {pp.price ? (
+                      <span style={{fontSize:14,fontWeight:700,color:isLowest?'var(--green)':'var(--ink-2)',letterSpacing:'-0.5px'}}>{pp.price}</span>
+                    ) : (
+                      <span style={{fontSize:11,color:'var(--accent)',fontFamily:'var(--font-mono)',fontWeight:600,letterSpacing:'0.3px',textTransform:'uppercase'}}>Check →</span>
+                    )}
+                    {pp.price && !isLowest && diff > 0 && <span style={{fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)'}}>+₹{diff.toLocaleString('en-IN')}</span>}
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/></svg>
                   </div>
                 </a>
