@@ -40,11 +40,30 @@ export type AiProduct = {
   best_price?: string; best_price_platform?: string; best_price_url?: string
 }
 
+export type DebugInfo = {
+  serp_keys_configured: { serpapi: boolean; perplexity: boolean; openai: boolean; anthropic: boolean }
+  serp_broad_count: number
+  serp_broad_sample: string[]
+  ai_provider_used: string
+  enrich_details: Array<{
+    name: string
+    matched: number
+    targeted_fallback_used: boolean
+    targeted_matched: number
+    best_platform: string
+    best_price: string
+    image_found: boolean
+    reviews_count: number
+    platform_prices_count: number
+  }>
+}
+
 export type SearchResult = {
   answer: string
   aiProducts: AiProduct[]
   serpProducts: SerpSearchResult['products']
   relatedSearches: string[]
+  _debug?: DebugInfo
   isOutOfScope?: boolean
   provider_used?: string    // Which AI provider answered
   algorithm_version: string
@@ -246,7 +265,11 @@ function buildSearchUrl(marketplace: string, productName: string): string {
 // PRICE ENRICHMENT — Skyscanner style
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['products']): Promise<AiProduct[]> {
+async function enrichPrices(
+  aiProducts: AiProduct[],
+  serpProducts: SerpSearchResult['products'],
+  debugCollector?: DebugInfo['enrich_details']
+): Promise<AiProduct[]> {
   // Hybrid: first try to match against broad SERP, then do per-product SERP for unmatched
   return Promise.all(aiProducts.map(async ai => {
     // ── Smart name tokenization: extract key identifiers ──
@@ -284,7 +307,10 @@ async function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchRes
 
     // ── HYBRID FALLBACK: if broad SERP didn't yield 2+ marketplace matches, do a targeted SERP ──
     // This runs in parallel (enrichPrices is in Promise.all), so only adds latency per-product, not total
+    let usedTargetedSerp = false
+    let targetedMatchCount = 0
     if (matched.length < 2) {
+      usedTargetedSerp = true
       console.log(`[enrichPrices] "${ai.name.slice(0,40)}" broad match=${matched.length}, firing targeted SERP...`)
       try {
         const targetedResult = await searchGoogleShopping(ai.name)
@@ -300,6 +326,7 @@ async function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchRes
           if (!brandHit && mustMatch.length === 0) return false
           return true
         })
+        targetedMatchCount = targeted.length
         console.log(`[enrichPrices] "${ai.name.slice(0,40)}" targeted SERP yielded ${targeted.length} matches`)
         // Merge: prefer targeted results (more specific to this product)
         matched = [...targeted, ...matched]
@@ -417,6 +444,21 @@ async function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchRes
     if (bestDelivery) result.delivery = bestDelivery
 
     console.log(`[enrichPrices] "${ai.name.slice(0,35)}" matches=${matched.length} best=${best?.platform}:${best?.price||'—'} image=${bestImage?'YES':'NO'} reviews=${totalReviews} platforms=[${platform_prices.map(p=>`${p.platform}:${p.price||'—'}`).join(', ')}]`)
+
+    // Collect debug info
+    if (debugCollector) {
+      debugCollector.push({
+        name: ai.name.slice(0, 80),
+        matched: matched.length,
+        targeted_fallback_used: usedTargetedSerp,
+        targeted_matched: targetedMatchCount,
+        best_platform: best?.platform || '',
+        best_price: best?.price || '',
+        image_found: !!bestImage,
+        reviews_count: totalReviews,
+        platform_prices_count: platform_prices.filter(pp => pp.price_numeric !== 999999).length,
+      })
+    }
 
     return result
   }))
@@ -788,7 +830,24 @@ export async function runSearch(
     aiProducts=[...aiProducts,...fill]
   }
 
-  aiProducts = await enrichPrices(aiProducts, serpResult.products)
+    const debugEnrich: DebugInfo['enrich_details'] = []
+  aiProducts = await enrichPrices(aiProducts, serpResult.products, debugEnrich)
+
+  // Build debug info — visible in Network tab of response
+  const debugInfo: DebugInfo = {
+    serp_keys_configured: {
+      serpapi: !!process.env.SERPAPI_API_KEY,
+      perplexity: !!process.env.PERPLEXITY_API_KEY,
+      openai: !!process.env.OPENAI_API_KEY,
+      anthropic: !!process.env.ANTHROPIC_API_KEY,
+    },
+    serp_broad_count: serpResult.products.length,
+    serp_broad_sample: serpResult.products.slice(0, 3).map(p =>
+      `${p.source}:${p.price}${p.thumbnail_large || p.thumbnail ? '[img]' : '[noimg]'}${p.reviews ? ` ${p.reviews}rv` : ''}`
+    ),
+    ai_provider_used: providerUsed,
+    enrich_details: debugEnrich,
+  }
 
   const result: SearchResult = {
     answer: answer||'Here are the top electronics options for India right now.',
@@ -797,6 +856,7 @@ export async function runSearch(
     relatedSearches: serpResult.relatedSearches,
     provider_used: providerUsed,
     algorithm_version: ALGORITHM_VERSION,
+    _debug: debugInfo,
   }
   cache.set(cacheKey, { result, ts:Date.now() })
   console.log(`[Search] Done — provider=${providerUsed} products=${aiProducts.length}`)
