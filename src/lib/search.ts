@@ -248,38 +248,91 @@ function buildSearchUrl(marketplace: string, productName: string): string {
 
 function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['products']): AiProduct[] {
   return aiProducts.map(ai => {
-    const nameWords = ai.name.toLowerCase().split(/\s+/).filter(w=>w.length>2).slice(0,6)
+    // ── Smart name tokenization: extract key identifiers ──
+    // Example: "Apple iPhone 17 Pro Max (256GB)" → tokens: [apple, iphone, 17, pro, max, 256gb]
+    // Example: "iQOO Z9x 5G (8GB+128GB)" → tokens: [iqoo, z9x, 5g, 8gb, 128gb]
+    const tokenize = (str: string): string[] => {
+      return str.toLowerCase()
+        .replace(/\([^)]*\)/g, ' ')  // strip parens but keep inner content via next step
+        .replace(/[()+,]/g, ' ')
+        .replace(/(\d+)(gb|tb|mah|hz|k|w|bhp|ton|litre|l|kg)/gi, '$1$2') // keep "128gb" together
+        .split(/[\s\-_/]+/)
+        .filter(w => w.length >= 2 && !/^(the|with|and|for|new|best|price|in|india|online|buy|store|from|at|by)$/.test(w))
+    }
+
+    // Re-tokenize AI name WITH parens content
+    const aiName = ai.name.toLowerCase()
+    const aiTokens = tokenize(ai.name + ' ' + (ai.name.match(/\(([^)]*)\)/g)||[]).join(' '))
+    // Key identifiers: model numbers (contain digits) are MUST-MATCH
+    const mustMatch = aiTokens.filter(t => /\d/.test(t) && t.length >= 2)
+    // Brand keywords: first 1-2 words typically
+    const brandTokens = aiTokens.filter(t => !/\d/.test(t)).slice(0, 3)
+
     const matched = serpProducts.filter(sp => {
       if (!sp.title || !sp.price || !isMarketplace(sp.source)) return false
-      const t = sp.title.toLowerCase()
-      return nameWords.filter(w => t.includes(w)).length >= Math.min(3, Math.max(2, nameWords.length-2))
+      const spTokens = new Set(tokenize(sp.title))
+
+      // ALL must-match identifiers must be present (model numbers, storage, etc.)
+      if (mustMatch.length > 0) {
+        const modelHits = mustMatch.filter(t => spTokens.has(t) || Array.from(spTokens).some(st => st.includes(t))).length
+        if (modelHits < Math.max(1, Math.ceil(mustMatch.length * 0.6))) return false
+      }
+      // At least one brand word must match
+      const brandHit = brandTokens.some(t => spTokens.has(t))
+      if (!brandHit && mustMatch.length === 0) return false
+
+      return true
     })
 
+    console.log(`[enrichPrices] "${ai.name.slice(0,40)}" → ${matched.length} SERP matches`)
+
     // ── Build per-platform best-price map ──
+    // Keep the LOWEST price listing per platform (handles multiple sellers on Amazon/Flipkart)
     const byPlatform = new Map<string, {price_str:string;price_num:number;url:string}>()
     for (const sp of matched) {
       const key = normaliseMarketplace(sp.source)
+      const priceNum = sp.price_numeric || parseInt(String(sp.price).replace(/[^\d]/g,'')) || 0
+      if (priceNum <= 0) continue  // skip junk
       const existing = byPlatform.get(key)
-      if (!existing || sp.price_numeric < existing.price_num) {
+      if (!existing || priceNum < existing.price_num) {
         byPlatform.set(key, {
           price_str: sp.price,
-          price_num: sp.price_numeric,
+          price_num: priceNum,
           url: (sp.link && isMarketplace(sp.source)) ? sp.link : buildSearchUrl(key, ai.name),
         })
       }
     }
-    for (const m of ['Amazon','Flipkart']) {
-      if (!byPlatform.has(m)) byPlatform.set(m, { price_str:'—', price_num:999999, url:buildSearchUrl(m,ai.name) })
+
+    // Ensure Amazon + Flipkart always appear (with search-fallback URL if no match)
+    // Also add Croma, Reliance Digital as additional marketplaces if they had matches
+    const ensurePlatforms = ['Amazon','Flipkart']
+    for (const m of ensurePlatforms) {
+      if (!byPlatform.has(m)) {
+        byPlatform.set(m, { price_str:'', price_num:999999, url:buildSearchUrl(m, ai.name) })
+      }
     }
+
+    // Sort: real prices ascending, then unavailable at the end
     const entries = Array.from(byPlatform.entries())
-      .sort((a,b) => { if(a[1].price_num===999999)return 1; if(b[1].price_num===999999)return -1; return a[1].price_num-b[1].price_num })
-      .slice(0,5)
-    const platform_prices: PlatformPrice[] = entries.map(([platform,data],idx) => ({
-      platform, price:data.price_str, price_numeric:data.price_num,
-      url:data.url, availability:data.price_num===999999?'unknown':'in_stock',
-      is_lowest: idx===0 && data.price_num!==999999
+      .sort((a,b) => {
+        if (a[1].price_num === 999999) return 1
+        if (b[1].price_num === 999999) return -1
+        return a[1].price_num - b[1].price_num
+      })
+      .slice(0, 5)
+
+    const platform_prices: PlatformPrice[] = entries.map(([platform, data], idx) => ({
+      platform,
+      price: data.price_num === 999999 ? '' : data.price_str,
+      price_numeric: data.price_num,
+      url: data.url,
+      availability: data.price_num === 999999 ? 'unknown' : 'in_stock',
+      is_lowest: idx === 0 && data.price_num !== 999999,
     }))
-    const best = platform_prices.find(p=>p.is_lowest) || platform_prices[0]
+    // "Best" = lowest-priced platform that actually has data
+    const best = platform_prices.find(p => p.is_lowest) || platform_prices.find(p => p.price_numeric !== 999999) || platform_prices[0]
+
+    console.log(`[enrichPrices] "${ai.name.slice(0,30)}" best=${best?.platform}:${best?.price||'—'} platforms=${platform_prices.map(p=>`${p.platform}:${p.price||'—'}`).join(',')}`)
 
     // ── Aggregate review count across all matched listings (one per platform, max per platform to avoid double-counting duplicates) ──
     let totalReviews = 0
@@ -317,14 +370,15 @@ function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['p
     const bestDelivery = matched
       .filter(sp => sp.delivery && normaliseMarketplace(sp.source) === (best?.platform||'Amazon'))[0]?.delivery
 
+    const hasRealPrice = best && best.price_numeric !== 999999 && best.price
     const result: AiProduct = {
       ...ai,
       platform_prices,
-      best_price: best?.price_numeric!==999999 ? best?.price||ai.price : ai.price,
-      best_price_platform: best?.platform||ai.seller,
-      best_price_url: best?.url||buildSearchUrl('amazon',ai.name),
-      price: best?.price_numeric!==999999 ? best?.price||ai.price : ai.price,
-      seller: best?.platform||ai.seller,
+      best_price: hasRealPrice ? best!.price : '',
+      best_price_platform: best?.platform || ai.seller || 'Amazon',
+      best_price_url: best?.url || buildSearchUrl('Amazon', ai.name),
+      price: hasRealPrice ? best!.price : ai.price,
+      seller: best?.platform || ai.seller || 'Amazon',
     }
 
     // Override AI's guessed values with REAL marketplace data when available
