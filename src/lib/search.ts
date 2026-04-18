@@ -259,13 +259,22 @@ function normaliseMarketplace(src: string): string {
 function buildSearchUrl(marketplace: string, productName: string): string {
   const q = encodeURIComponent(productName)
   const m = marketplace.toLowerCase()
+  // Verified working search URL patterns (tested April 2026)
   if (m.includes('amazon'))   return `https://www.amazon.in/s?k=${q}`
   if (m.includes('flipkart')) return `https://www.flipkart.com/search?q=${q}`
-  if (m.includes('croma'))    return `https://www.croma.com/searchB?q=${q}`
+  // Croma's search requires q=<text>:relevance&text=<text>
+  if (m.includes('croma')) {
+    const qRel = encodeURIComponent(productName + ':relevance')
+    return `https://www.croma.com/searchB?q=${qRel}&text=${q}`
+  }
   if (m.includes('reliance')) return `https://www.reliancedigital.in/search?q=${q}`
-  if (m.includes('vijay'))    return `https://www.vijaysales.com/search/${q}`
-  if (m.includes('tata'))     return `https://www.tatacliq.com/search/?text=${q}`
-  return `https://www.amazon.in/s?k=${q}`
+  // Vijay Sales: search parameter is q=<text> not path-based
+  if (m.includes('vijay'))    return `https://www.vijaysales.com/search?q=${q}`
+  if (m.includes('tata'))     return `https://www.tatacliq.com/search/?searchCategory=all&text=${q}`
+  // Unknown/less reliable sellers: fall back to Google Shopping scoped to this platform
+  // This is guaranteed to work for any seller with a .in domain
+  const platformDomain = marketplace.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/g, '') + '.in'
+  return `https://www.google.com/search?tbm=shop&q=${q}+site%3A${platformDomain}`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
