@@ -108,12 +108,6 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
 
         <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap'}}>
           <span style={{fontSize:30,fontWeight:800,color:isTop?'#4A3FBF':'#0D0D0C',letterSpacing:'-2px',fontFamily:'var(--font-sans)'}}>{p.price}</span>
-          {p.delivery && (
-            <span style={{fontSize:11,color:'#16A34A',fontFamily:'var(--font-mono)',fontWeight:500,letterSpacing:'0.3px',background:'rgba(22,163,74,0.08)',border:'1px solid rgba(22,163,74,0.2)',borderRadius:6,padding:'4px 10px',display:'inline-flex',alignItems:'center',gap:4}}>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 13l4 4L19 7"/></svg>
-              {p.delivery}
-            </span>
-          )}
           
         </div>
 
@@ -218,7 +212,7 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
       )}
 
       {/* Skyscanner-style price comparison */}
-      <div style={{borderTop:'1px solid var(--border)',background:'var(--bg-2)'}}>
+      <div style={{borderTop:'1px solid var(--border)',background:'var(--bg-2)',marginTop:'auto'}}>
         {/* Best price headline — Skyscanner-style prominent banner */}
         {(() => {
           const hasRealPrice = !!(p.best_price && p.best_price !== '—' && p.best_price !== '')
@@ -475,6 +469,7 @@ function SearchResults(){
                       platforms with prices: {d.platform_prices_count},
                       reviews: {d.reviews_count}
                     </div>
+                    <div style={{color:'#A0A0A0',fontSize:10}}>expected range: <span style={{color:'#FFD700'}}>{d.expected_range||'—'}</span></div>
                   </div>
                 ))}
               </div>
