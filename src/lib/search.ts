@@ -332,7 +332,7 @@ function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['p
     // "Best" = lowest-priced platform that actually has data
     const best = platform_prices.find(p => p.is_lowest) || platform_prices.find(p => p.price_numeric !== 999999) || platform_prices[0]
 
-    console.log(`[enrichPrices] "${ai.name.slice(0,30)}" best=${best?.platform}:${best?.price||'—'} platforms=${platform_prices.map(p=>`${p.platform}:${p.price||'—'}`).join(',')}`)
+    console.log(`[enrichPrices] "${ai.name.slice(0,35)}" matches=${matched.length} best=${best?.platform}:${best?.price||'—'} image=${bestImage?'YES':'NO'} reviews=${totalReviews} platforms=[${platform_prices.map(p=>`${p.platform}:${p.price||'—'}`).join(', ')}]`)
 
     // ── Aggregate review count across all matched listings (one per platform, max per platform to avoid double-counting duplicates) ──
     let totalReviews = 0
@@ -356,10 +356,11 @@ function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['p
     }
     const marketplaceRating = ratingWeight > 0 ? Number((ratingSum / ratingWeight).toFixed(2)) : undefined
 
-    // ── Best product image (from highest-rated matched listing) ──
-    const bestImage = matched
-      .filter(sp => sp.thumbnail)
-      .sort((a,b) => (b.reviews||0) - (a.reviews||0))[0]?.thumbnail
+    // ── Best product image (prefer thumbnail_large for 800×800, from most-reviewed listing) ──
+    const imageSources = matched
+      .filter(sp => sp.thumbnail_large || sp.thumbnail)
+      .sort((a,b) => (b.reviews||0) - (a.reviews||0))
+    const bestImage = imageSources[0]?.thumbnail_large || imageSources[0]?.thumbnail
 
     // ── Best deal tag (from lowest-price listing that has a tag) ──
     const bestDeal = matched
