@@ -80,7 +80,6 @@ function EditorSeal({label}:{label:string}){
 function AiCard({p,idx}:{p:AiProduct;idx:number}){
   const [open,setOpen]=useState(false)
   const buyUrl=getDirectUrl(p.seller,p.name)
-  const platRating=Math.min(5,p.platform_rating||Math.min(5,p.rating+0.4))
   const aiRating=Math.min(5,Math.max(1,p.rating))
   const isTop=idx===0
   const rankLabel=['#1 Best Pick','#2 Runner Up','#3 Third Pick'][idx]||`#${idx+1}`
