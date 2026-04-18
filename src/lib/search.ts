@@ -742,7 +742,26 @@ async function callClaude(
 
 async function callSarvamChat(
   systemPrompt: string, userMsg: string, apiKey: string
-): Promise<{ answer: string; products: unknown[] }
+): Promise<{ answer: string; products: unknown[] }> {
+  try {
+    const res = await fetch('https://api.sarvam.ai/v1/chat/completions', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','api-subscription-key':apiKey},
+      body: JSON.stringify({ model:'sarvam-m', max_tokens:2000, temperature:0.25,
+        messages:[{role:'system',content:systemPrompt},{role:'user',content:userMsg}] }),
+    })
+    if (!res.ok) return { answer:'', products:[] }
+    const d = JSON.parse(await res.text())
+    let c: string = d?.choices?.[0]?.message?.content||''
+    let prev=''
+    while(prev!==c){prev=c;c=c.replace(/<think>[\s\S]*?<\/think>/gi,'')}
+    c = c.replace(/<\/?think[^>]*>/gi,'').trim()
+    const start=c.indexOf('{'); const end=c.lastIndexOf('}')
+    if (start<0||end<0) return { answer:'', products:[] }
+    const parsed = JSON.parse(c.slice(start,end+1))
+    return { answer: String(parsed.answer||''), products: Array.isArray(parsed.products)?parsed.products:[] }
+  } catch(e) { console.error('[Sarvam chat]',String(e)); return { answer:'', products:[] } }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SARVAM TRANSLATE — Auto-detects source language + translates to English
@@ -819,26 +838,6 @@ function langInstructionFromSarvamCode(code: string): string {
 // Fast-path: returns true if text is pure ASCII (no translation needed → skip Sarvam call, save 300ms)
 function isPureAscii(text: string): boolean {
   return /^[\x00-\x7F]*$/.test(text)
-}
-> {
-  try {
-    const res = await fetch('https://api.sarvam.ai/v1/chat/completions', {
-      method:'POST',
-      headers:{'Content-Type':'application/json','api-subscription-key':apiKey},
-      body: JSON.stringify({ model:'sarvam-m', max_tokens:2000, temperature:0.25,
-        messages:[{role:'system',content:systemPrompt},{role:'user',content:userMsg}] }),
-    })
-    if (!res.ok) return { answer:'', products:[] }
-    const d = JSON.parse(await res.text())
-    let c: string = d?.choices?.[0]?.message?.content||''
-    let prev=''
-    while(prev!==c){prev=c;c=c.replace(/<think>[\s\S]*?<\/think>/gi,'')}
-    c = c.replace(/<\/?think[^>]*>/gi,'').trim()
-    const start=c.indexOf('{'); const end=c.lastIndexOf('}')
-    if (start<0||end<0) return { answer:'', products:[] }
-    const parsed = JSON.parse(c.slice(start,end+1))
-    return { answer: String(parsed.answer||''), products: Array.isArray(parsed.products)?parsed.products:[] }
-  } catch(e) { console.error('[Sarvam chat]',String(e)); return { answer:'', products:[] } }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
