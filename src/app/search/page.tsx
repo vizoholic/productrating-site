@@ -4,7 +4,7 @@ import { useState, Suspense, useRef, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Nav from '@/components/Nav'
 
-type PlatformPrice = { platform:string; price:string; url:string; availability:string; isBrand?:boolean }
+type PlatformPrice = { platform:string; price:string; price_numeric?:number; url:string; availability:string; is_lowest?:boolean; isBrand?:boolean }
 type NewerVersion = { name:string; reason:string; price_approx:string }
 type AiProduct = {
   name:string; price:string; seller:string;
@@ -239,18 +239,37 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
 
       {/* Skyscanner-style price comparison */}
       <div style={{borderTop:'1px solid var(--border)',background:'var(--bg-2)'}}>
-        {/* Best price headline */}
-        <div style={{padding:'10px 18px 6px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-          <div style={{display:'flex',alignItems:'center',gap:7}}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2"><polyline points="20 6 9 17 4 12"/></svg>
-            <span style={{fontSize:10,color:'var(--green)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',fontWeight:600}}>Best price</span>
-          </div>
-          <span style={{fontSize:18,fontWeight:800,color:'var(--green)',letterSpacing:'-0.8px'}}>
-            {p.best_price || (p.price && p.price !== '—' ? p.price : null) || (
-              <span style={{fontSize:13,color:'var(--accent)',fontWeight:600}}>Check price →</span>
-            )}
-          </span>
-        </div>
+        {/* Best price headline — Skyscanner-style prominent banner */}
+        {(() => {
+          const hasRealPrice = !!(p.best_price && p.best_price !== '—' && p.best_price !== '')
+          const prices = (p.platform_prices || []).filter(pp => pp.price && pp.price_numeric && pp.price_numeric !== 999999).map(pp => pp.price_numeric)
+          const lowestNum = prices.length ? Math.min(...prices) : 0
+          const highestNum = prices.length ? Math.max(...prices) : 0
+          const savings = highestNum - lowestNum
+          return (
+            <div style={{padding:'12px 18px',display:'flex',alignItems:'center',justifyContent:'space-between',background:hasRealPrice?'linear-gradient(135deg,rgba(22,163,74,0.06) 0%,rgba(22,163,74,0.02) 100%)':'transparent'}}>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <div>
+                  <div style={{fontSize:10,color:'var(--green)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',fontWeight:700}}>Best price</div>
+                  {savings > 100 && (
+                    <div style={{fontSize:10,color:'var(--ink-3)',marginTop:2,fontFamily:'var(--font-mono)'}}>Save ₹{savings.toLocaleString('en-IN')} vs highest</div>
+                  )}
+                </div>
+              </div>
+              <div style={{textAlign:'right'}}>
+                {hasRealPrice ? (
+                  <>
+                    <div style={{fontSize:22,fontWeight:800,color:'var(--green)',letterSpacing:'-1px',lineHeight:1}}>{p.best_price}</div>
+                    <div style={{fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)',marginTop:3,letterSpacing:'0.3px'}}>on {p.best_price_platform}</div>
+                  </>
+                ) : (
+                  <span style={{fontSize:13,color:'var(--accent)',fontWeight:600,fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>Check prices →</span>
+                )}
+              </div>
+            </div>
+          )
+        })()}
 
         {/* Platform price list */}
         {p.platform_prices && p.platform_prices.length > 0 ? (
