@@ -284,8 +284,7 @@ function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['p
       return true
     })
 
-    console.log(`[enrichPrices] "${ai.name.slice(0,40)}" → ${matched.length} SERP matches`)
-
+    
     // ── Build per-platform best-price map ──
     // Keep the LOWEST price listing per platform (handles multiple sellers on Amazon/Flipkart)
     const byPlatform = new Map<string, {price_str:string;price_num:number;url:string}>()
@@ -332,7 +331,7 @@ function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['p
     // "Best" = lowest-priced platform that actually has data
     const best = platform_prices.find(p => p.is_lowest) || platform_prices.find(p => p.price_numeric !== 999999) || platform_prices[0]
 
-    console.log(`[enrichPrices] "${ai.name.slice(0,35)}" matches=${matched.length} best=${best?.platform}:${best?.price||'—'} image=${bestImage?'YES':'NO'} reviews=${totalReviews} platforms=[${platform_prices.map(p=>`${p.platform}:${p.price||'—'}`).join(', ')}]`)
+
 
     // ── Aggregate review count across all matched listings (one per platform, max per platform to avoid double-counting duplicates) ──
     let totalReviews = 0
@@ -392,6 +391,8 @@ function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['p
     if (bestImage) result.image_url = bestImage
     if (bestDeal) result.deal_tag = bestDeal
     if (bestDelivery) result.delivery = bestDelivery
+
+    console.log(`[enrichPrices] "${ai.name.slice(0,35)}" matches=${matched.length} best=${best?.platform}:${best?.price||'—'} image=${bestImage?'YES':'NO'} reviews=${totalReviews} platforms=[${platform_prices.map(p=>`${p.platform}:${p.price||'—'}`).join(', ')}]`)
 
     return result
   })
