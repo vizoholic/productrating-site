@@ -41,9 +41,20 @@ export async function searchGoogleShopping(query: string): Promise<SerpSearchRes
     return { products: [], relatedSearches: [], query }
   }
 
+  // Clean query for Google Shopping:
+  // 1. Expand "20k" / "50k" shorthand to full numbers (Shopping doesn't interpret k)
+  // 2. Strip meta-words that confuse Shopping ranking ("best", "top", "2026")
+  const cleanQuery = query
+    .replace(/(\d+)\s*k\b/gi, (_, n) => String(parseInt(n) * 1000))  // 20k → 20000
+    .replace(/(\d+)\s*lakh\b/gi, (_, n) => String(parseInt(n) * 100000))  // 2 lakh → 200000
+    .replace(/\b(best|top|latest|new|2024|2025|2026)\b/gi, ' ')  // remove meta words
+    .replace(/\s+/g, ' ')
+    .trim() || query  // fall back to original if cleanup leaves empty string
+  console.log(`[SERP] query="${query}" cleaned="${cleanQuery}"`)
+
   const params = new URLSearchParams({
     engine: 'google_shopping',
-    q: query,
+    q: cleanQuery,
     location: 'India',
     google_domain: 'google.co.in',
     gl: 'in',
