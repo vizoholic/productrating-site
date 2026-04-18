@@ -440,7 +440,8 @@ function SearchResults(){
             </div>
           </div>
 
-          {/* AI answer */}
+          {/* AI answer — hide when out-of-scope (friendly UI renders below instead) */}
+          {answer && answer !== '__OUT_OF_SCOPE__' && (
           <div style={{background:'var(--accent-bg)',border:'1.5px solid var(--accent-border)',borderLeft:'3px solid var(--accent)',borderRadius:'var(--radius)',padding:'16px 20px',marginBottom:32}}>
             <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:9}}>
               <span style={{width:5,height:5,borderRadius:'50%',background:'var(--accent)',display:'inline-block',animation:'blink 2s infinite'}}/>
@@ -448,6 +449,7 @@ function SearchResults(){
             </div>
             <p style={{color:'var(--ink-2)',lineHeight:1.85,margin:0,fontSize:14,letterSpacing:'0.02em',fontWeight:300}}>{answer}</p>
           </div>
+          )}
 
           {/* Product cards */}
           {aiProducts.length>0&&(
