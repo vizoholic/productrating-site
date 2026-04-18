@@ -166,22 +166,14 @@ function routeQuery(question: string, keys: {
     sarvam:     keys.sarvam     ? { provider: 'sarvam'      as const, model: 'sarvam-m'         } : null,
   }
 
-  if (type === 'compare') {
-    // Compare: Claude Opus 4.7 best for deep analysis, then GPT-5.4, then Perplexity
-    const primary = available.claude || available.openai_52 || available.openai_41 || available.perplexity || available.sarvam
-    const fallbacks = [available.openai_52, available.openai_41, available.perplexity, available.sarvam]
-      .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
-    return { type, primary: primary!, fallbacks }
-  } else {
-    // Simple recommendation: OpenAI GPT-5.4 FIRST — highest JSON compliance + latest knowledge
-    // GPT-5.4 has knowledge through late 2025/early 2026, so it knows 2026 phone models.
-    // Perplexity as fallback for its web search when OpenAI fails or returns stale data.
-    // Claude 4.7 is also excellent for structured output.
-    const primary = available.openai_41 || available.claude || available.openai_52 || available.perplexity || available.sarvam
-    const fallbacks = [available.claude, available.openai_52, available.perplexity, available.sarvam]
-      .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
-    return { type, primary: primary!, fallbacks }
-  }
+  // Chain: Perplexity → Claude Opus 4.7 → OpenAI GPT-5.4 → OpenAI GPT-5.4-mini → Sarvam
+  // Perplexity is primary for both query types because it has live web search data
+  // (no knowledge cutoff problem — always returns current 2026 models).
+  // Claude and OpenAI are strong fallbacks when Perplexity returns narrative text without JSON.
+  const primary = available.perplexity || available.claude || available.openai_41 || available.openai_52 || available.sarvam
+  const fallbacks = [available.claude, available.openai_41, available.openai_52, available.sarvam]
+    .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
+  return { type, primary: primary!, fallbacks }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -785,7 +777,13 @@ type ProviderKeys = { openai?:string; claude?:string; perplexity?:string; sarvam
 async function callPerplexity(
   systemPrompt: string, userMsg: string, apiKey: string
 ): Promise<{ answer: string; products: unknown[] }> {
-  const model = 'sonar-pro'  // Latest Perplexity model: web search grounded, smarter reasoning
+  const model = 'sonar-pro'
+  // Strong JSON-only instruction prepended to ensure Perplexity returns parseable output
+  const perplexitySystem = systemPrompt +
+    '\n\n=== CRITICAL OUTPUT FORMAT ===\n' +
+    'You MUST respond with ONLY a valid JSON object. No markdown fences, no narrative preamble, no citations inline.\n' +
+    'Start your response with { and end with }. The JSON MUST contain a "products" array with 3 items matching the schema above.\n' +
+    'If you find yourself writing sentences before the JSON, STOP and start over with just the JSON.'
   for (let attempt = 0; attempt <= 1; attempt++) {
     try {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -797,16 +795,14 @@ async function callPerplexity(
         body: JSON.stringify({
           model,
           messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMsg },
+            { role: 'system', content: perplexitySystem },
+            { role: 'user', content: userMsg + '\n\nRespond with JSON only, starting with {' },
           ],
           max_tokens: 4000,
-          temperature: 0.15,  // Lower for more factual, less creative
+          temperature: 0.1,  // Very low for strict JSON compliance
           response_format: { type: 'json_object' },
-          // Perplexity-specific: web search controls for fresh results
-          search_recency_filter: 'month',  // Prefer recent (last 30 days) sources
-          search_domain_filter: [],        // No domain restriction
-          return_citations: false,         // Don't need citations inline
+          search_recency_filter: 'month',
+          return_citations: false,
           return_images: false,
         }),
       })
@@ -819,20 +815,29 @@ async function callPerplexity(
       }
       const d = JSON.parse(raw)
       const content: string = d?.choices?.[0]?.message?.content || ''
-      if (!content) return { answer: '', products: [] }
-      // Strip markdown fences if present
-      const jsonStr = content.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
-      const start = jsonStr.indexOf('{'); const end = jsonStr.lastIndexOf('}')
-      if (start < 0 || end < 0) {
-        console.error(`[Perplexity] No JSON found: ${content.slice(0, 200)}`)
+      if (!content) {
+        console.error(`[Perplexity] empty content in response`)
         return { answer: '', products: [] }
       }
-      const parsed = JSON.parse(jsonStr.slice(start, end + 1))
-      if ((parsed as Record<string,unknown>).out_of_scope === true) {
-        return { answer: '__OUT_OF_SCOPE__', products: [] }
+      // Strip <think>...</think> blocks (some Sonar variants emit reasoning)
+      let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+      // Strip markdown fences if present
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+      const start = cleaned.indexOf('{')
+      const endIdx = cleaned.lastIndexOf('}')
+      if (start < 0 || endIdx < 0 || endIdx < start) {
+        console.error(`[Perplexity] No JSON brackets found. First 400 chars: ${content.slice(0, 400)}`)
+        return { answer: '', products: [] }
       }
-      if ((parsed as Record<string,unknown>).out_of_scope === true) {
-        console.log(`[OpenAI] AI says out_of_scope`)
+      let parsed: Record<string, unknown>
+      try {
+        parsed = JSON.parse(cleaned.slice(start, endIdx + 1)) as Record<string, unknown>
+      } catch (parseErr) {
+        console.error(`[Perplexity] JSON parse failed: ${String(parseErr)}. Content: ${content.slice(0, 400)}`)
+        return { answer: '', products: [] }
+      }
+      if (parsed.out_of_scope === true) {
+        console.log(`[Perplexity] AI says out_of_scope`)
         return { answer: '__OUT_OF_SCOPE__', products: [] }
       }
       const prods = Array.isArray(parsed.products) ? parsed.products : []
