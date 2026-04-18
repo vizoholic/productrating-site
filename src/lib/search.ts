@@ -83,22 +83,31 @@ const ELECTRONICS_RE = [
   /മൊബൈൽ|ഫോൺ|ലാപ്ടോപ്|ടിവി/,
 ]
 const NON_ELECTRONICS_RE = [
-  /\b(recipe|food|restaurant|hotel|travel|flight|visa|insurance|mutual fund|stock|loan|credit card)\b/i,
-  /\b(fashion|clothing|dress|shirt|shoe|bag|jewellery|saree|kurta)\b/i,
-  /\b(book|novel|textbook|comic|magazine)\b/i,
-  /\b(medicine|doctor|hospital|diet|nutrition)\b/i,
-  /\b(school|college|exam|career|job|salary)\b/i,
-  /खाना|रेसिपी|कपड़े|साड़ी|होटल|किताब|दवाई|नौकरी/,
+  /\b(recipe|food|restaurant|cafe|hotel|flight|visa|mutual fund|stocks?|loan|credit card|insurance)\b/i,
+  /\b(fashion|clothing|dress|shirt|pant|shoe|handbag|jewellery|saree|kurta|perfume|makeup|lipstick|cream)\b/i,
+  /\b(novel|textbook|comic|magazine|poem|ebook(?!-?reader))\b/i,
+  /\b(medicine|tablet(?!\s+(under|price))|doctor|hospital|diet|nutrition|therapy|symptoms?|disease)\b/i,
+  /\b(school|college|exam|career|salary|resume|interview tips|syllabus)\b/i,
+  /\b(movie|film|anime|song|lyrics|playlist|netflix|spotify subscription)\b/i,
+  /\b(cryptocurrency|bitcoin|nft|trading)\b/i,
+  /खाना|रेसिपी|कपड़े|साड़ी|होटल|दवाई|इलाज|डॉक्टर|नौकरी|रोज़गार|परीक्षा|सिलेबस|फ़िल्म|गाना/,
 ]
 
 function isElectronics(q: string): boolean {
-  // Fast-pass: price + Indian script = electronics intent
-  if (/[₹]|\d+k\b|hazar|हज़ार|हजार|\d{4,}/.test(q) &&
-      /[\u0900-\u097F\u0B80-\u0BFF\u0C00-\u0C7F\u0980-\u09FF\u0C80-\u0CFF\u0D00-\u0D7F]/.test(q)) return true
-  if (/\b(best|kaun|kaunsa|chahiye|batao|recommend)\b/i.test(q) &&
-      /\b(phone|mobile|laptop|tv|ac|fridge|earbuds|camera|watch)\b/i.test(q)) return true
-  if (NON_ELECTRONICS_RE.some(p => p.test(q))) return false
-  return ELECTRONICS_RE.some(p => p.test(q))
+  // Normalize Unicode (handles nukta variants: फ़ vs फ + ़, etc.)
+  const query = q.normalize('NFC').toLowerCase().trim()
+  if (!query || query.length < 2) return false
+
+  // ── Permissive strategy: only reject clearly non-electronics queries ──
+  // The AI does fine-grained scope checking and can return out_of_scope for edge cases.
+  // This fixes generic electronics queries like "एक लाख तक के अंदर का बेस्ट फ़ोन" that
+  // don't literally say "phone" in English but are obviously about electronics.
+
+  // Hard REJECT: obvious non-electronics topics
+  if (NON_ELECTRONICS_RE.some(p => p.test(query))) return false
+
+  // Accept everything else — AI will handle fine-grained scope check
+  return true
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -345,6 +354,10 @@ function formatReviewCount(n: number): string {
 function buildSystemPrompt(lang: string, loc: string, monthYear: string, currentYear: number): string {
   const locationNote = loc ? `User location: ${loc}.` : ''
   return `You are ProductRating.in, India's most trusted electronics advisor. ${monthYear}.
+
+SCOPE: You ONLY help with consumer electronics queries — smartphones, laptops, tablets, TVs, air conditioners, refrigerators, washing machines, headphones/earbuds, speakers, smartwatches, cameras, kitchen appliances, chargers, peripherals, gaming consoles, accessories. You handle queries in English, Hindi, Hinglish, Tamil, Telugu, Bengali, Kannada, Malayalam, Marathi, and other Indian languages.
+If the question is NOT about consumer electronics, return: {"answer": "", "products": [], "out_of_scope": true}
+Otherwise, answer normally with full product recommendations.
 ${lang ? lang + '\n' : ''}${locationNote ? locationNote + '\n' : ''}
 Return ONLY valid JSON — no text before or after:
 {
@@ -457,6 +470,9 @@ async function callClaude(
       const start = jsonStr.indexOf('{'); const end = jsonStr.lastIndexOf('}')
       if (start<0||end<0) { console.error('[Claude] no JSON found'); return { answer:'', products:[] } }
       const parsed = JSON.parse(jsonStr.slice(start, end+1))
+      if ((parsed as Record<string,unknown>).out_of_scope === true) {
+        return { answer: '__OUT_OF_SCOPE__', products: [] }
+      }
       console.log(`[Claude:${model}] answer="${String(parsed.answer||'').slice(0,60)}" products=${Array.isArray(parsed.products)?parsed.products.length:0}`)
       return { answer: String(parsed.answer||''), products: Array.isArray(parsed.products)?parsed.products:[] }
     } catch(e) { console.error(`[Claude:${model}] attempt ${attempt+1}:`,String(e)) }
@@ -543,6 +559,13 @@ async function callPerplexity(
         return { answer: '', products: [] }
       }
       const parsed = JSON.parse(jsonStr.slice(start, end + 1))
+      if ((parsed as Record<string,unknown>).out_of_scope === true) {
+        return { answer: '__OUT_OF_SCOPE__', products: [] }
+      }
+      if ((parsed as Record<string,unknown>).out_of_scope === true) {
+        console.log(`[OpenAI] AI says out_of_scope`)
+        return { answer: '__OUT_OF_SCOPE__', products: [] }
+      }
       const prods = Array.isArray(parsed.products) ? parsed.products : []
       const answer = String(parsed.answer || '').trim()
       console.log(`[Perplexity] answer="${answer.slice(0, 80)}" products=${prods.length}`)
@@ -630,6 +653,15 @@ export async function runSearch(
     if (r2.answer || r2.products.length>0) {
       answer=r2.answer; rawProducts=r2.products
       providerUsed=`${fb.provider}:${fb.model}`
+    }
+  }
+
+  // AI determined the query is out of scope (e.g. food, movies, fashion)
+  if (answer === '__OUT_OF_SCOPE__') {
+    console.log(`[Search] AI returned out_of_scope for: "${question.slice(0,60)}"`)
+    return {
+      answer: '', aiProducts: [], serpProducts: [], relatedSearches: [],
+      isOutOfScope: true, algorithm_version: ALGORITHM_VERSION,
     }
   }
 
