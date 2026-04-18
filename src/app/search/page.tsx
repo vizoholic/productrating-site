@@ -364,6 +364,7 @@ function SearchResults(){
   const mediaRef=useRef<MediaRecorder|null>(null)
   const chunksRef=useRef<Blob[]>([])
   const streamRef=useRef<MediaStream|null>(null)
+  const [debugInfo,setDebugInfo]=useState<any>(null)
   const lastSearchedRef=useRef<string>('')  // deduplication — prevent same query firing twice
 
   const doSearch=async(q:string)=>{
@@ -371,7 +372,7 @@ function SearchResults(){
     setLoading(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([])
     try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();if(d.isOutOfScope){setAnswer('__OUT_OF_SCOPE__');setAiProducts([]);setSerpProducts([]);setRelated([]);setLoading(false);return;}
       const ans = String(d.answer||'').replace(/^(advice:|note:)\s*/i,'').trim()
-      setAnswer(ans);setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[])}
+      setAnswer(ans);setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[]);setDebugInfo(d._debug||null)}
     catch{setAnswer('Something went wrong. Please try again.')}finally{setLoading(false)}
   }
   useEffect(()=>{
@@ -484,6 +485,41 @@ function SearchResults(){
             </div>
             <p style={{color:'var(--ink-2)',lineHeight:1.85,margin:0,fontSize:14,letterSpacing:'0.02em',fontWeight:300}}>{answer}</p>
           </div>
+          )}
+
+          {/* Debug panel — shown only when ?debug=1 in URL */}
+          {typeof window !== 'undefined' && window.location.search.includes('debug=1') && debugInfo && (
+            <div style={{marginBottom:24,padding:16,background:'#1A1A1A',borderRadius:10,fontSize:11,fontFamily:'var(--font-mono)',color:'#E5E5E5',overflow:'auto'}}>
+              <div style={{color:'#FFD700',fontSize:10,letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:10,fontWeight:700}}>🔍 Debug Info</div>
+              <div style={{marginBottom:8}}>
+                <strong style={{color:'#4ADE80'}}>API Keys:</strong>{' '}
+                SERPAPI: <span style={{color:debugInfo.serp_keys_configured?.serpapi?'#4ADE80':'#EF4444'}}>{String(debugInfo.serp_keys_configured?.serpapi)}</span>,{' '}
+                Perplexity: <span style={{color:debugInfo.serp_keys_configured?.perplexity?'#4ADE80':'#EF4444'}}>{String(debugInfo.serp_keys_configured?.perplexity)}</span>,{' '}
+                OpenAI: <span style={{color:debugInfo.serp_keys_configured?.openai?'#4ADE80':'#EF4444'}}>{String(debugInfo.serp_keys_configured?.openai)}</span>,{' '}
+                Claude: <span style={{color:debugInfo.serp_keys_configured?.anthropic?'#4ADE80':'#EF4444'}}>{String(debugInfo.serp_keys_configured?.anthropic)}</span>
+              </div>
+              <div style={{marginBottom:8}}><strong style={{color:'#4ADE80'}}>AI Provider used:</strong> {debugInfo.ai_provider_used || 'none'}</div>
+              <div style={{marginBottom:8}}><strong style={{color:'#4ADE80'}}>Broad SERP:</strong> {debugInfo.serp_broad_count} products</div>
+              {debugInfo.serp_broad_sample?.length > 0 && (
+                <div style={{marginBottom:8,paddingLeft:12,color:'#A0A0A0'}}>Sample: {debugInfo.serp_broad_sample.join(' | ')}</div>
+              )}
+              <div style={{marginTop:12,borderTop:'1px solid #333',paddingTop:10}}>
+                <strong style={{color:'#4ADE80'}}>Per-product enrichment:</strong>
+                {debugInfo.enrich_details?.map((d: any, i: number) => (
+                  <div key={i} style={{marginTop:6,paddingLeft:12,lineHeight:1.6}}>
+                    <div style={{color:'#FFF',fontWeight:600}}>{i+1}. {d.name}</div>
+                    <div style={{color:'#A0A0A0'}}>
+                      matches: <span style={{color:d.matched>0?'#4ADE80':'#EF4444'}}>{d.matched}</span>,
+                      targeted: <span style={{color:d.targeted_fallback_used?'#FFD700':'#A0A0A0'}}>{d.targeted_fallback_used?`YES (${d.targeted_matched} hits)`:'no'}</span>,
+                      image: <span style={{color:d.image_found?'#4ADE80':'#EF4444'}}>{d.image_found?'YES':'NO'}</span>,
+                      price: <span style={{color:d.best_price?'#4ADE80':'#EF4444'}}>{d.best_price||'—'} on {d.best_platform||'—'}</span>,
+                      platforms with prices: {d.platform_prices_count},
+                      reviews: {d.reviews_count}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {/* Product cards */}
