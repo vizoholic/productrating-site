@@ -242,7 +242,7 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
         {/* Best price headline — Skyscanner-style prominent banner */}
         {(() => {
           const hasRealPrice = !!(p.best_price && p.best_price !== '—' && p.best_price !== '')
-          const prices = (p.platform_prices || []).filter(pp => pp.price && pp.price_numeric && pp.price_numeric !== 999999).map(pp => pp.price_numeric)
+          const prices: number[] = (p.platform_prices || []).filter(pp => pp.price && pp.price_numeric && pp.price_numeric !== 999999).map(pp => pp.price_numeric as number)
           const lowestNum = prices.length ? Math.min(...prices) : 0
           const highestNum = prices.length ? Math.max(...prices) : 0
           const savings = highestNum - lowestNum
