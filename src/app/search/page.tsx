@@ -99,26 +99,6 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
       <div style={{padding:'22px 22px 0',flex:1}}>
         {p.badge&&<span style={{display:'inline-block',fontSize:10,fontWeight:700,color:'#15803D',background:'rgba(22,163,74,0.08)',border:'1px solid rgba(22,163,74,0.25)',borderRadius:100,padding:'4px 14px',marginBottom:14,fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase'}}>● {p.badge}</span>}
 
-        {/* Product image — always show container; fall back to icon if no image */}
-        <div style={{position:'relative',width:'100%',aspectRatio:'16/9',background:'linear-gradient(135deg,#F8F7F4 0%,#F0EEE8 100%)',borderRadius:12,overflow:'hidden',marginBottom:14,border:'1px solid rgba(0,0,0,0.06)',display:'flex',alignItems:'center',justifyContent:'center'}}>
-          {p.image_url ? (
-            <img src={p.image_url} alt={p.name} style={{width:'100%',height:'100%',objectFit:'contain',padding:12}} loading="lazy"
-              onError={(e)=>{
-                const img = e.currentTarget as HTMLImageElement
-                img.style.display='none'
-                const fallback = img.nextElementSibling as HTMLElement
-                if(fallback) fallback.style.display='flex'
-              }}/>
-          ) : null}
-          {/* Fallback icon — shown when image fails or not available */}
-          <div style={{display:p.image_url?'none':'flex',flexDirection:'column',alignItems:'center',gap:8,color:'var(--ink-4)'}}>
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
-            <span style={{fontSize:10,fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',opacity:0.6}}>Image loading</span>
-          </div>
-          {p.deal_tag && (
-            <div style={{position:'absolute',top:10,right:10,background:'#16A34A',color:'#fff',fontSize:10,fontWeight:700,fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',padding:'4px 10px',borderRadius:6,boxShadow:'0 2px 6px rgba(22,163,74,0.25)'}}>🔥 {p.deal_tag}</div>
-          )}
-        </div>
         <h3 style={{fontWeight:700,fontSize:19,color:'#0D0D0C',lineHeight:1.25,letterSpacing:'-0.5px',marginBottom:14}}>{p.name}</h3>
 
           {/* Launch date badge */}
@@ -321,27 +301,6 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
         )}
       </div>
     </div>
-  )
-}
-
-function SerpCard({p}:{p:SerpProduct}){
-  const url=getDirectUrl(p.source,p.title)
-  return(
-    <a href={url} target="_blank" rel="noopener noreferrer"
-      style={{display:'flex',gap:14,padding:'14px 18px',background:'var(--bg-1)',border:'1.5px solid var(--border)',borderRadius:'var(--radius)',textDecoration:'none',transition:'all 0.2s cubic-bezier(0.22,1,0.36,1)',alignItems:'flex-start',boxShadow:'var(--shadow-xs)'}}
-      onMouseEnter={e=>{(e.currentTarget as HTMLAnchorElement).style.transform='translateX(4px)';(e.currentTarget as HTMLAnchorElement).style.borderColor='var(--accent-border)';(e.currentTarget as HTMLAnchorElement).style.boxShadow='var(--shadow-sm)'}}
-      onMouseLeave={e=>{(e.currentTarget as HTMLAnchorElement).style.transform='translateX(0)';(e.currentTarget as HTMLAnchorElement).style.borderColor='var(--border)';(e.currentTarget as HTMLAnchorElement).style.boxShadow='var(--shadow-xs)'}}>
-      {p.thumbnail&&<img src={p.thumbnail} alt="" style={{width:52,height:52,objectFit:'contain',borderRadius:'var(--radius-sm)',background:'var(--bg-2)',flexShrink:0,border:'1px solid var(--border)',filter:'saturate(0.9)'}} onError={e=>{(e.target as HTMLImageElement).style.display='none'}}/>}
-      <div style={{flex:1,minWidth:0}}>
-        <div style={{fontSize:13,fontWeight:400,color:'var(--ink-2)',lineHeight:1.5,marginBottom:5,letterSpacing:'0.01em'}}>{p.title}</div>
-        <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
-          <span style={{fontSize:18,fontWeight:800,color:'var(--ink)',letterSpacing:'-0.8px'}}>{p.price}</span>
-          <span style={{fontSize:11,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>{p.source}</span>
-          {p.rating&&<span style={{fontSize:11,color:'var(--green)',fontFamily:'var(--font-mono)',fontWeight:500}}>{Math.min(5,p.rating).toFixed(1)}/5</span>}
-        </div>
-      </div>
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="1.8" style={{flexShrink:0,marginTop:3}}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-    </a>
   )
 }
 
@@ -555,20 +514,7 @@ function SearchResults(){
             </div>
           )}
 
-          {/* Live prices */}
-          {serpProducts.length>0&&(
-            <div style={{marginBottom:44}}>
-              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
-                <h2 style={{fontSize:16,fontWeight:600,color:'var(--ink-2)',letterSpacing:'-0.2px'}}>Live Prices</h2>
-                <span style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',border:'1px solid var(--border)',borderRadius:4,padding:'3px 10px',letterSpacing:'1px',textTransform:'uppercase'}}>Direct Links</span>
-              </div>
-              <div style={{display:'flex',flexDirection:'column',gap:8}}>
-                {serpProducts.slice(0,5).map((p,i)=><SerpCard key={i} p={p}/>)}
-              </div>
-            </div>
-          )}
-
-          {/* Related */}
+{/* Related */}
           {related.length>0&&(
             <div style={{paddingTop:24,borderTop:'1px solid var(--border)'}}>
               <p style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:14}}>Related Searches</p>
