@@ -273,7 +273,8 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
 
 function SearchResults(){
   const sp=useSearchParams(),router=useRouter()
-  const query=sp.get('q')||''
+  // Strip any accidentally embedded query params (e.g. "?debug=1" in q value)
+  const query=(sp.get('q')||'').split(/[?&]/)[0].trim()
   const [input,setInput]=useState(query)
   // Sync input box when URL query param changes (e.g. from example pill clicks)
   useEffect(()=>{if(query)setInput(query)},[query])
