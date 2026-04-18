@@ -295,7 +295,7 @@ function SearchResults(){
 
   const doSearch=async(q:string)=>{
     if(!q.trim()||loading)return  // loading guard prevents double calls
-    setLoading(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([])
+    setLoading(true);setAnswer('');setAiProducts([]);setSerpProducts([]);setRelated([]);setDebugInfo(null)
     try{const r=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});const d=await r.json();if(d.isOutOfScope){setAnswer('__OUT_OF_SCOPE__');setAiProducts([]);setSerpProducts([]);setRelated([]);setLoading(false);return;}
       const ans = String(d.answer||'').replace(/^(advice:|note:)\s*/i,'').trim()
       setAnswer(ans);setAiProducts(d.aiProducts||[]);setSerpProducts(d.serpProducts||[]);setRelated(d.relatedSearches||[]);setDebugInfo(d._debug||null)}
