@@ -298,15 +298,17 @@ function computePrScore(
   productName: string,
   aiRatingFallback: number
 ): { platform_rating: number; pr_score: number; confidence: 'high'|'medium'|'low' } {
-  // Collect per-platform rating+volume (one entry per marketplace, using max-review listing)
+  // Collect per-platform rating+reviews (one entry per marketplace, using max-review listing)
+  // IMPORTANT: accept ratings even when review count is missing (common in appliance/AC category on Google Shopping)
   const platformData = new Map<string, { rating: number; reviews: number }>()
   for (const sp of matched) {
-    if (!sp.rating || !sp.reviews || sp.rating < 1 || sp.rating > 5) continue
+    if (!sp.rating || sp.rating < 1 || sp.rating > 5) continue
     const key = normaliseMarketplace(sp.source)
+    const reviewsCount = sp.reviews || 0
     const existing = platformData.get(key)
-    // Prefer the listing with MORE reviews per platform (more reliable signal)
-    if (!existing || sp.reviews > existing.reviews) {
-      platformData.set(key, { rating: sp.rating, reviews: sp.reviews })
+    // Prefer the listing with MORE reviews per platform; if neither has reviews, keep any rating
+    if (!existing || reviewsCount > existing.reviews) {
+      platformData.set(key, { rating: sp.rating, reviews: reviewsCount })
     }
   }
 
@@ -316,32 +318,41 @@ function computePrScore(
     return { platform_rating: platform, pr_score: Number((platform - 0.1).toFixed(2)), confidence: 'low' }
   }
 
-  // Weighted average across platforms (weighted by review count)
+  // Weighted average: if a platform has review count, weight by reviews; otherwise use weight = 50 (small default)
+  // This lets us still compute a rating for AC/appliance listings that lack review counts
+  const DEFAULT_WEIGHT = 50  // treats rating-only listings as ~50 reviews worth of signal
   let totalWeightedRating = 0
-  let totalReviews = 0
+  let totalEffectiveWeight = 0
+  let totalRealReviews = 0
+  let platformsWithReviews = 0
   const ratings: number[] = []
   for (const { rating, reviews } of platformData.values()) {
-    totalWeightedRating += rating * reviews
-    totalReviews += reviews
+    const weight = reviews > 0 ? reviews : DEFAULT_WEIGHT
+    totalWeightedRating += rating * weight
+    totalEffectiveWeight += weight
+    totalRealReviews += reviews
+    if (reviews > 0) platformsWithReviews++
     ratings.push(rating)
   }
-  const platformRating = Number((totalWeightedRating / totalReviews).toFixed(2))
+  const platformRating = Number((totalWeightedRating / totalEffectiveWeight).toFixed(2))
 
-  // ── Confidence adjustment ──
-  let adjustment = 0.10  // baseline: -0.1 for any platform rating (small global fake-review allowance)
+  // ── Confidence-based adjustment ──
+  let adjustment = 0.10  // baseline: -0.1 across the board
   const reasons: string[] = ['baseline -0.1']
 
-  // Signal 1: Very high rating with low volume (< 500 reviews) — inflation signal
-  const totalReviewsAcrossPlatforms = totalReviews
-  if (platformRating >= 4.7 && totalReviewsAcrossPlatforms < 500) {
-    adjustment += 0.20
-    reasons.push('low-volume-high-rating -0.2')
-  } else if (platformRating >= 4.5 && totalReviewsAcrossPlatforms < 200) {
-    adjustment += 0.15
-    reasons.push('low-volume-high-rating -0.15')
+  // Low-volume-high-rating inflation signal — only applies when we actually HAVE review counts
+  // (ACs/appliances often have 0 reviews on Google Shopping, so don't penalize that as "low volume")
+  if (platformsWithReviews > 0) {
+    if (platformRating >= 4.7 && totalRealReviews < 500) {
+      adjustment += 0.20
+      reasons.push('low-volume-high-rating -0.2')
+    } else if (platformRating >= 4.5 && totalRealReviews < 200) {
+      adjustment += 0.15
+      reasons.push('low-volume-high-rating -0.15')
+    }
   }
 
-  // Signal 2: Cross-platform variance > 0.5 → one platform is lying
+  // Cross-platform variance — one platform is lying
   if (ratings.length >= 2) {
     const spread = Math.max(...ratings) - Math.min(...ratings)
     if (spread >= 0.5) {
@@ -350,7 +361,7 @@ function computePrScore(
     }
   }
 
-  // Signal 3: Known inflation-prone budget audio brands (per ASCI India 2023 fake review report)
+  // Known inflation-prone budget audio brands (per ASCI India 2023 fake review report)
   const nameLc = productName.toLowerCase()
   const budgetAudioBrands = ['boat', 'noise', 'zebronics', 'portronics', 'ptron', 'mivi', 'pebble']
   if (budgetAudioBrands.some(b => nameLc.includes(b))) {
@@ -358,16 +369,18 @@ function computePrScore(
     reasons.push('budget-audio-brand -0.15')
   }
 
-  // Cap adjustment at 0.6 (never drop more than that from real rating)
   adjustment = Math.min(0.60, adjustment)
-
   const prScore = Number((platformRating - adjustment).toFixed(2))
-  // Confidence = high if we have 500+ total reviews across 2+ platforms
-  const confidence: 'high'|'medium'|'low' =
-    (totalReviewsAcrossPlatforms >= 500 && platformData.size >= 2) ? 'high' :
-    (totalReviewsAcrossPlatforms >= 100) ? 'medium' : 'low'
 
-  console.log(`[computePrScore] "${productName.slice(0,30)}" platforms=${platformData.size} totalReviews=${totalReviewsAcrossPlatforms} platformRating=${platformRating} adjustment=-${adjustment.toFixed(2)} reasons=[${reasons.join(', ')}] prScore=${prScore} confidence=${confidence}`)
+  // Confidence:
+  // - high: 500+ real reviews across 2+ platforms
+  // - medium: 100+ real reviews OR 2+ platforms with ratings (even without review counts)
+  // - low: only 1 platform and no reviews
+  const confidence: 'high'|'medium'|'low' =
+    (totalRealReviews >= 500 && platformsWithReviews >= 2) ? 'high' :
+    (totalRealReviews >= 100 || platformData.size >= 2) ? 'medium' : 'low'
+
+  console.log(`[computePrScore] "${productName.slice(0,30)}" platforms=${platformData.size} realReviews=${totalRealReviews} platformRating=${platformRating} adjustment=-${adjustment.toFixed(2)} reasons=[${reasons.join(', ')}] prScore=${prScore} confidence=${confidence}`)
 
   return { platform_rating: platformRating, pr_score: prScore, confidence }
 }
