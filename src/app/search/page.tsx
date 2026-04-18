@@ -111,43 +111,17 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
           
         </div>
 
-        {/* Score block */}
-        <div style={{background:'#F4F3FF',borderRadius:14,padding:20,marginBottom:16,border:'1px solid rgba(91,79,207,0.12)'}}>
-          <div style={{display:'flex',gap:18,alignItems:'flex-start',marginBottom:14}}>
-            <div>
-              <div style={{fontSize:10,color:'var(--ink-2)',fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase',fontWeight:500,marginBottom:8,display:'flex',alignItems:'center',gap:5,flexWrap:'wrap'}}>
-                <span>PR Score · {(p.reviews||'—').replace(/\s*\([^)]*\)/g,'')} reviews</span>
-                {p.reviews_verified && (
-                  <span title="Review count verified from live marketplace data" style={{display:'inline-flex',alignItems:'center',gap:3,background:'rgba(22,163,74,0.1)',color:'#16A34A',padding:'2px 6px',borderRadius:4,fontSize:9,fontWeight:600,letterSpacing:'0.3px'}}>
-                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M20 6L9 17l-5-5"/></svg>
-                    LIVE
-                  </span>
-                )}
-              </div>
-              <RatingArc score={aiRating} size={60}/>
+        {/* Score block — clean, single rating display */}
+        <div style={{background:'#F4F3FF',borderRadius:14,padding:'20px 22px',marginBottom:16,border:'1px solid rgba(91,79,207,0.12)',display:'flex',alignItems:'center',gap:20}}>
+          <RatingArc score={aiRating} size={64}/>
+          <div style={{flex:1}}>
+            <div style={{fontSize:10,color:'var(--ink-3)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',fontWeight:600,marginBottom:6}}>PR Rating</div>
+            <div style={{display:'flex',alignItems:'baseline',gap:6,marginBottom:8}}>
+              <span style={{fontSize:26,fontWeight:800,color:'var(--ink)',letterSpacing:'-1px',lineHeight:1}}>{aiRating.toFixed(1)}</span>
+              <span style={{fontSize:14,color:'var(--ink-3)',fontWeight:500}}>/ 5</span>
             </div>
-            <div style={{flex:1,paddingTop:4}}>
-              {/* Custom progress bar */}
-              <div style={{marginBottom:12}}>
-                <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'var(--ink-2)',fontFamily:'var(--font-mono)',marginBottom:6,fontWeight:500}}>
-                  <span>AI-adjusted score</span><span>{aiRating.toFixed(1)}/5</span>
-                </div>
-                <div style={{height:4,background:'var(--bg-3)',borderRadius:2,overflow:'hidden'}}>
-                  <div style={{height:'100%',width:`${(aiRating/5)*100}%`,background:'linear-gradient(90deg,var(--accent),var(--accent-2))',borderRadius:2,transition:'width 1s cubic-bezier(0.22,1,0.36,1)'}}/>
-                </div>
-              </div>
-              {/* Platform vs real */}
-              <div style={{background:'#FFFFFF',borderRadius:10,padding:'12px 14px',border:'1px solid rgba(0,0,0,0.08)',display:'flex',alignItems:'center',gap:8,fontSize:12,boxShadow:'0 1px 4px rgba(0,0,0,0.04)'}}>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',marginBottom:3,textTransform:'uppercase'}}>Platform</div>
-                  <span style={{color:'#C0392B',fontWeight:700,fontSize:16}}>{platRating.toFixed(1)}</span><span style={{color:'var(--ink-3)',fontSize:11,marginLeft:4,fontWeight:400}}>with fakes</span>
-                </div>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--ink-4)" strokeWidth="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                <div style={{flex:1}}>
-                  <div style={{fontSize:9,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',marginBottom:3,textTransform:'uppercase'}}>Real</div>
-                  <span style={{color:'#16A34A',fontWeight:700,fontSize:16}}>{aiRating.toFixed(1)}</span><span style={{color:'var(--ink-3)',fontSize:11,marginLeft:4,fontWeight:400}}>AI-adjusted</span>
-                </div>
-              </div>
+            <div style={{fontSize:11,color:'var(--ink-3)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>
+              {(p.reviews||'—').replace(/\s*\([^)]*\)/g,'')} reviews
             </div>
           </div>
         </div>
@@ -420,7 +394,7 @@ function SearchResults(){
           <div style={{marginBottom:24,paddingBottom:20,borderBottom:'1px solid var(--border)',marginTop:8}}>
             <h1 style={{fontSize:'clamp(20px,3.5vw,28px)',fontWeight:700,color:'var(--ink)',letterSpacing:'-0.8px',marginBottom:8,lineHeight:1.2}}>{query||input}</h1>
             <div style={{display:'flex',gap:14,flexWrap:'wrap'}}>
-              {['AI-adjusted ratings','Fake reviews removed','All scores out of 5'].map(t=>(
+              {['PR rating from live data','Review-count-weighted','All scores out of 5'].map(t=>(
                 <span key={t} style={{fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',display:'flex',alignItems:'center',gap:4}}>
                   <span style={{width:3,height:3,borderRadius:'50%',background:'var(--accent)',display:'inline-block'}}/>
                   {t}
@@ -470,6 +444,7 @@ function SearchResults(){
                       reviews: {d.reviews_count}
                     </div>
                     <div style={{color:'#A0A0A0',fontSize:10}}>expected range: <span style={{color:'#FFD700'}}>{d.expected_range||'—'}</span></div>
+                    <div style={{color:'#A0A0A0',fontSize:10}}>PR Score: <span style={{color:'#4ADE80'}}>{d.pr_score_details||'—'}</span></div>
                   </div>
                 ))}
               </div>
