@@ -147,7 +147,8 @@ function routeQuery(question: string, keys: {
       .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
     return { type, primary: primary!, fallbacks }
   } else {
-    // Simple: Perplexity first (web-grounded = real dates/prices), then OpenAI, then Claude
+    // Simple: Perplexity FIRST (web-grounded = latest India models + current prices)
+    // OpenAI/Claude have knowledge cutoffs — they'll recommend discontinued models confidently
     const primary = available.perplexity || available.openai_41 || available.claude || available.openai_52 || available.sarvam
     const fallbacks = [available.openai_41, available.claude, available.openai_52, available.sarvam]
       .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
@@ -400,7 +401,14 @@ SELECTION CRITERIA (apply internally, never describe in output):
 
 • launch_date_india: The INDIA launch date (not global). India is typically 1-3 months after global launch. Use your web knowledge to verify accurately. Format: "Month Year" e.g. "January 2025". If genuinely uncertain, write year only e.g. "2025".
 • newer_version: Search your knowledge for whether a newer model in this exact product series exists and is sold in India. Set to null if this IS the current/latest model. If a confirmed successor exists, populate name + what improved. price_approx always "—".
-• Product selection: Always recommend the most current models available in India as of ${monthYear}. Do not recommend discontinued or replaced models when newer successors are available.`
+• CRITICAL — Always recommend the LATEST CURRENT models available for purchase in India as of ${monthYear}:
+  - For "best iPhone" → recommend the newest iPhone currently sold in India (check 2025/2026 launches, not 2023/2024)
+  - For "best Samsung Galaxy" → recommend the latest S-series / Fold / Flip available RIGHT NOW
+  - NEVER recommend a model that has been superseded by a newer version in the same series and price tier
+  - If a 2026 model is available → recommend it over 2025 models → over 2024 models
+  - Examples of generations in ${monthYear}: iPhone series currently sells iPhone 15/16/17, check which is newest
+  - When the user says "best" / "सबसे अच्छा" / "बेस्ट" they expect the NEWEST flagship, not an older one
+  - If unsure about what's latest, search the web first before recommending`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -534,11 +542,13 @@ async function callPerplexity(
             { role: 'user', content: userMsg },
           ],
           max_tokens: 4000,
-          temperature: 0.2,
+          temperature: 0.15,  // Lower for more factual, less creative
           response_format: { type: 'json_object' },
-          // Perplexity-specific: search the web for grounded answers
-          search_domain_filter: [],  // no domain restriction
-          return_citations: false,   // don't need citations in output
+          // Perplexity-specific: web search controls for fresh results
+          search_recency_filter: 'month',  // Prefer recent (last 30 days) sources
+          search_domain_filter: [],        // No domain restriction
+          return_citations: false,         // Don't need citations inline
+          return_images: false,
         }),
       })
       if (res.status === 429) { await new Promise(r => setTimeout(r, 3000)); continue }
@@ -628,7 +638,7 @@ export async function runSearch(
 
   const systemPrompt = buildSystemPrompt(lang, loc, monthYear, currentYear)
   const userMsg = `Question: ${question}${loc?`\nLocation: ${loc}`:''}` +
-    (serpContext ? `\n\nLive prices from Indian platforms (use for real availability):\n${serpContext}` : '')
+    (serpContext ? `\n\n=== LIVE PRODUCTS CURRENTLY ON SALE IN INDIA (${monthYear}) ===\nThese are the actual products available on Amazon/Flipkart/Croma RIGHT NOW. Prefer models that appear here — they are confirmed available. If a model you recall is missing from this list, it may be discontinued.\n${serpContext}\n=== END LIVE DATA ===` : '')
 
   // Try primary provider
   let answer='', rawProducts: unknown[]=[], providerUsed=''
