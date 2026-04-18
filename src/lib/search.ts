@@ -742,7 +742,85 @@ async function callClaude(
 
 async function callSarvamChat(
   systemPrompt: string, userMsg: string, apiKey: string
-): Promise<{ answer: string; products: unknown[] }> {
+): Promise<{ answer: string; products: unknown[] }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SARVAM TRANSLATE — Auto-detects source language + translates to English
+// Supports all 22 Indian languages. Returns { translated, detected_lang }.
+// Used to normalize non-English queries before hitting SERP + LLM chain.
+// ─────────────────────────────────────────────────────────────────────────────
+async function sarvamTranslateToEnglish(
+  text: string, apiKey: string
+): Promise<{ translated: string; detected_lang: string }> {
+  if (!apiKey || !text.trim()) return { translated: text, detected_lang: 'en-IN' }
+  try {
+    const res = await fetch('https://api.sarvam.ai/translate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-subscription-key': apiKey,
+      },
+      body: JSON.stringify({
+        input: text,
+        source_language_code: 'auto',
+        target_language_code: 'en-IN',
+        model: 'sarvam-translate:v1',
+        enable_preprocessing: false,
+      }),
+    })
+    const raw = await res.text()
+    if (!res.ok) {
+      console.error(`[Sarvam:Translate] HTTP ${res.status}: ${raw.slice(0, 200)}`)
+      return { translated: text, detected_lang: 'en-IN' }
+    }
+    const d = JSON.parse(raw) as { translated_text?: string; source_language_code?: string }
+    const translated = (d.translated_text || text).trim()
+    const detectedLang = d.source_language_code || 'en-IN'
+    console.log(`[Sarvam:Translate] "${text.slice(0,50)}" → "${translated.slice(0,50)}" (detected: ${detectedLang})`)
+    return { translated, detected_lang: detectedLang }
+  } catch (e) {
+    console.error('[Sarvam:Translate] error:', String(e))
+    return { translated: text, detected_lang: 'en-IN' }
+  }
+}
+
+// Map Sarvam BCP-47 language codes to response-style instructions for the LLM.
+// Used AFTER Sarvam detects input lang, so LLM responds in user's original language.
+function langInstructionFromSarvamCode(code: string): string {
+  const map: Record<string, string> = {
+    'en-IN': '',                                                    // English: no instruction
+    'en-US': '',
+    'hi-IN': 'Respond in Hindi (Devanagari script). Technical terms in English.',
+    'bn-IN': 'Respond in Bengali (Bangla script). Technical terms in English.',
+    'ta-IN': 'Respond in Tamil. Technical terms in English.',
+    'te-IN': 'Respond in Telugu. Technical terms in English.',
+    'mr-IN': 'Respond in Marathi (Devanagari). Technical terms in English.',
+    'gu-IN': 'Respond in Gujarati. Technical terms in English.',
+    'kn-IN': 'Respond in Kannada. Technical terms in English.',
+    'ml-IN': 'Respond in Malayalam. Technical terms in English.',
+    'pa-IN': 'Respond in Punjabi (Gurmukhi). Technical terms in English.',
+    'od-IN': 'Respond in Odia. Technical terms in English.',
+    'ur-IN': 'Respond in Urdu. Technical terms in English.',
+    'as-IN': 'Respond in Assamese. Technical terms in English.',
+    'ne-IN': 'Respond in Nepali. Technical terms in English.',
+    'sa-IN': 'Respond in Sanskrit. Technical terms in English.',
+    'brx-IN': 'Respond in Bodo. Technical terms in English.',
+    'doi-IN': 'Respond in Dogri. Technical terms in English.',
+    'kok-IN': 'Respond in Konkani. Technical terms in English.',
+    'ks-IN': 'Respond in Kashmiri. Technical terms in English.',
+    'mai-IN': 'Respond in Maithili. Technical terms in English.',
+    'mni-IN': 'Respond in Manipuri (Meitei). Technical terms in English.',
+    'sat-IN': 'Respond in Santali. Technical terms in English.',
+    'sd-IN': 'Respond in Sindhi. Technical terms in English.',
+  }
+  return map[code] || ''
+}
+
+// Fast-path: returns true if text is pure ASCII (no translation needed → skip Sarvam call, save 300ms)
+function isPureAscii(text: string): boolean {
+  return /^[\x00-\x7F]*$/.test(text)
+}
+> {
   try {
     const res = await fetch('https://api.sarvam.ai/v1/chat/completions', {
       method:'POST',
@@ -885,23 +963,44 @@ export async function runSearch(
 
   const monthYear = getMonthYear()
   const currentYear = getYear()
-  const lang = detectLang(question)
   const loc = getLocation(city, state)
 
-  const keys: ProviderKeys = { openai:openaiKey, claude:claudeKey, perplexity:perplexityKey, sarvam:sarvamKey }
-  const plan = routeQuery(question, keys)
+  // ── LANGUAGE PIPELINE (22 Indian languages via Sarvam) ──
+  // 1. Fast-path: if query is already pure English/ASCII, skip Sarvam (saves ~300ms)
+  // 2. Otherwise: Sarvam auto-detects source language + translates to English
+  // 3. Feed English query to SERP (Google Shopping indexes in English)
+  // 4. Feed English query to LLM chain (better reasoning in English)
+  // 5. Tell LLM to respond in the user's ORIGINAL detected language
+  let englishQuery = question
+  let detectedLang = 'en-IN'
+  let langInstruction = ''
+  if (!isPureAscii(question) && sarvamKey) {
+    const t = await sarvamTranslateToEnglish(question, sarvamKey)
+    englishQuery = t.translated
+    detectedLang = t.detected_lang
+    langInstruction = langInstructionFromSarvamCode(detectedLang)
+  } else {
+    // Fallback: use old regex detection for ASCII that might be Hinglish
+    langInstruction = detectLang(question)
+  }
+  const lang = langInstruction
 
+  const keys: ProviderKeys = { openai:openaiKey, claude:claudeKey, perplexity:perplexityKey, sarvam:sarvamKey }
+  const plan = routeQuery(englishQuery, keys)
+
+  console.log(`[Search] originalQ="${question.slice(0,50)}" englishQ="${englishQuery.slice(0,50)}" lang=${detectedLang}`)
   console.log(`[Search] type=${plan.type} primary=${plan.primary?.provider}:${plan.primary?.model} loc="${loc||'India'}"`)
   console.log(`[Search] keys: openai=${!!openaiKey} claude=${!!claudeKey} perplexity=${!!perplexityKey} sarvam=${!!sarvamKey}`)
 
-  // SERP — live prices from Google Shopping
-  let serpResult: SerpSearchResult = { products:[], relatedSearches:[], query:question }
-  try { serpResult = await searchGoogleShopping(question); console.log(`[SERP] ${serpResult.products.length} results`) }
+  // SERP — live prices from Google Shopping (uses ENGLISH query for best results)
+  let serpResult: SerpSearchResult = { products:[], relatedSearches:[], query: englishQuery }
+  try { serpResult = await searchGoogleShopping(englishQuery); console.log(`[SERP] ${serpResult.products.length} results`) }
   catch(e) { console.error('[SERP]:', String(e)) }
   const serpContext = buildProductContext(serpResult)
 
   const systemPrompt = buildSystemPrompt(lang, loc, monthYear, currentYear)
-  const userMsg = `Question: ${question}${loc?`\nLocation: ${loc}`:''}` +
+  // Send English-translated query to LLM (better reasoning); lang instruction tells LLM to reply in user's language
+  const userMsg = `Question: ${englishQuery}${loc?`\nLocation: ${loc}`:''}` +
     (serpContext ? `\n\n=== LIVE PRODUCTS CURRENTLY ON SALE IN INDIA (${monthYear}) ===\nThese are the actual products available on Amazon/Flipkart/Croma RIGHT NOW. Prefer models that appear here — they are confirmed available. If a model you recall is missing from this list, it may be discontinued.\n${serpContext}\n=== END LIVE DATA ===` : '')
 
   // Try primary provider
