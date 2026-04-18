@@ -59,6 +59,7 @@ export type DebugInfo = {
     reviews_count: number
     platform_prices_count: number
     expected_range: string  // e.g. "17000-24000" or "none"
+    pr_score_details: string  // e.g. "platform 4.35 → PR 4.15 (med conf, -0.2)"
   }>
 }
 
@@ -213,7 +214,7 @@ function sanitise(p: Record<string,unknown>, i: number): AiProduct {
     price: String(p.price||'—'),
     seller: normaliseMarketplace(String(p.seller||'Amazon')),
     rating: r,
-    platform_rating: Math.min(5.0, Math.max(r+0.15, Number(p.platform_rating)||r+0.3)),
+    platform_rating: Math.min(5.0, Math.max(3.5, Number(p.platform_rating)||Number(p.rating)||4.3)),
     reviews: String(p.reviews||'').replace(/\s*\([^)]*\)/g,'').trim(),
     badge: String(p.badge||['Best Pick','Best Value','Budget Pick'][i]||'Top Rated'),
     reason: String(p.reason||''),
@@ -270,6 +271,97 @@ function buildSearchUrl(marketplace: string, productName: string): string {
 // ─────────────────────────────────────────────────────────────────────────────
 // PRICE ENRICHMENT — Skyscanner style
 // ─────────────────────────────────────────────────────────────────────────────
+
+
+/**
+ * Compute PR Score from real marketplace data.
+ * 
+ * Platform rating = review-count-weighted average across all platforms (what buyers actually give).
+ * PR Score = platform_rating - confidence adjustment based on:
+ *   1. Rating-vs-volume mismatch (high rating + low volume = likely inflated)
+ *   2. Cross-platform variance (if Amazon says 4.9 but Flipkart says 4.1, something's off)
+ *   3. Known-inflation-prone budget brands (per ASCI India reports on fake reviews)
+ * 
+ * If we have NO real SERP data, returns { platform_rating: aiRating, pr_score: aiRating - 0.1 } as fallback.
+ */
+function computePrScore(
+  matched: SerpSearchResult['products'],
+  productName: string,
+  aiRatingFallback: number
+): { platform_rating: number; pr_score: number; confidence: 'high'|'medium'|'low' } {
+  // Collect per-platform rating+volume (one entry per marketplace, using max-review listing)
+  const platformData = new Map<string, { rating: number; reviews: number }>()
+  for (const sp of matched) {
+    if (!sp.rating || !sp.reviews || sp.rating < 1 || sp.rating > 5) continue
+    const key = normaliseMarketplace(sp.source)
+    const existing = platformData.get(key)
+    // Prefer the listing with MORE reviews per platform (more reliable signal)
+    if (!existing || sp.reviews > existing.reviews) {
+      platformData.set(key, { rating: sp.rating, reviews: sp.reviews })
+    }
+  }
+
+  // No real data → fall back to AI estimate with minimal adjustment
+  if (platformData.size === 0) {
+    const platform = Math.min(5.0, Math.max(3.5, aiRatingFallback))
+    return { platform_rating: platform, pr_score: Number((platform - 0.1).toFixed(2)), confidence: 'low' }
+  }
+
+  // Weighted average across platforms (weighted by review count)
+  let totalWeightedRating = 0
+  let totalReviews = 0
+  const ratings: number[] = []
+  for (const { rating, reviews } of platformData.values()) {
+    totalWeightedRating += rating * reviews
+    totalReviews += reviews
+    ratings.push(rating)
+  }
+  const platformRating = Number((totalWeightedRating / totalReviews).toFixed(2))
+
+  // ── Confidence adjustment ──
+  let adjustment = 0.10  // baseline: -0.1 for any platform rating (small global fake-review allowance)
+  const reasons: string[] = ['baseline -0.1']
+
+  // Signal 1: Very high rating with low volume (< 500 reviews) — inflation signal
+  const totalReviewsAcrossPlatforms = totalReviews
+  if (platformRating >= 4.7 && totalReviewsAcrossPlatforms < 500) {
+    adjustment += 0.20
+    reasons.push('low-volume-high-rating -0.2')
+  } else if (platformRating >= 4.5 && totalReviewsAcrossPlatforms < 200) {
+    adjustment += 0.15
+    reasons.push('low-volume-high-rating -0.15')
+  }
+
+  // Signal 2: Cross-platform variance > 0.5 → one platform is lying
+  if (ratings.length >= 2) {
+    const spread = Math.max(...ratings) - Math.min(...ratings)
+    if (spread >= 0.5) {
+      adjustment += 0.10
+      reasons.push(`spread-${spread.toFixed(1)} -0.1`)
+    }
+  }
+
+  // Signal 3: Known inflation-prone budget audio brands (per ASCI India 2023 fake review report)
+  const nameLc = productName.toLowerCase()
+  const budgetAudioBrands = ['boat', 'noise', 'zebronics', 'portronics', 'ptron', 'mivi', 'pebble']
+  if (budgetAudioBrands.some(b => nameLc.includes(b))) {
+    adjustment += 0.15
+    reasons.push('budget-audio-brand -0.15')
+  }
+
+  // Cap adjustment at 0.6 (never drop more than that from real rating)
+  adjustment = Math.min(0.60, adjustment)
+
+  const prScore = Number((platformRating - adjustment).toFixed(2))
+  // Confidence = high if we have 500+ total reviews across 2+ platforms
+  const confidence: 'high'|'medium'|'low' =
+    (totalReviewsAcrossPlatforms >= 500 && platformData.size >= 2) ? 'high' :
+    (totalReviewsAcrossPlatforms >= 100) ? 'medium' : 'low'
+
+  console.log(`[computePrScore] "${productName.slice(0,30)}" platforms=${platformData.size} totalReviews=${totalReviewsAcrossPlatforms} platformRating=${platformRating} adjustment=-${adjustment.toFixed(2)} reasons=[${reasons.join(', ')}] prScore=${prScore} confidence=${confidence}`)
+
+  return { platform_rating: platformRating, pr_score: prScore, confidence }
+}
 
 async function enrichPrices(
   aiProducts: AiProduct[],
@@ -408,15 +500,9 @@ async function enrichPrices(
     }
     for (const count of reviewsPerPlatform.values()) totalReviews += count
 
-    // ── Average marketplace rating (weighted by review count) ──
-    let ratingSum = 0, ratingWeight = 0
-    for (const sp of matched) {
-      if (sp.rating && sp.reviews) {
-        ratingSum += sp.rating * sp.reviews
-        ratingWeight += sp.reviews
-      }
-    }
-    const marketplaceRating = ratingWeight > 0 ? Number((ratingSum / ratingWeight).toFixed(2)) : undefined
+    // ── Compute PR Score using real SERP data with confidence-based fake-review adjustment ──
+    const prComputed = computePrScore(matched, ai.name, ai.rating || 4.3)
+    const marketplaceRating = prComputed.platform_rating
 
     // ── Best product image (prefer thumbnail_large for 800×800, from most-reviewed listing) ──
     const imageSources = matched
@@ -451,6 +537,11 @@ async function enrichPrices(
       result.reviews_verified = true
     }
     if (marketplaceRating) result.marketplace_rating = marketplaceRating
+    // Override AI's guessed ratings with real data when confidence is medium/high
+    if (prComputed.confidence !== 'low') {
+      result.rating = prComputed.pr_score       // real PR Score
+      result.platform_rating = prComputed.platform_rating  // real marketplace weighted average
+    }
     if (bestImage) result.image_url = bestImage
     if (bestDeal) result.deal_tag = bestDeal
     if (bestDelivery) result.delivery = bestDelivery
@@ -462,6 +553,7 @@ async function enrichPrices(
       const rangeStr = (ai.price_min_expected || ai.price_max_expected)
         ? `${ai.price_min_expected||0}-${ai.price_max_expected||0} (floor:${priceFloor}, ceil:${priceCeil})`
         : 'none'
+      const prDetails = `platform ${prComputed.platform_rating.toFixed(2)} → PR ${prComputed.pr_score.toFixed(2)} (${prComputed.confidence} conf)`
       debugCollector.push({
         name: ai.name.slice(0, 80),
         matched: matched.length,
@@ -473,6 +565,7 @@ async function enrichPrices(
         reviews_count: totalReviews,
         platform_prices_count: platform_prices.filter(pp => pp.price_numeric !== 999999).length,
         expected_range: rangeStr,
+        pr_score_details: prDetails,
       })
     }
 
@@ -506,8 +599,8 @@ Return ONLY valid JSON — no text before or after:
       "name": "<full product name with RAM/storage variant>",
       "price": "—",
       "seller": "Amazon",
-      "rating": <3.5-4.8>,
-      "platform_rating": <3.8-5.0>,
+      "rating": <3.5-4.8 — your honest estimate; will be overridden by live data if available>,
+      "platform_rating": <3.8-5.0 — your honest estimate; same as above>,
       "reviews": "<combined count e.g. 28k>",
       "badge": "Best Pick",
       "score": <50-95>,
@@ -536,7 +629,7 @@ SELECTION CRITERIA (apply internally, never describe in output):
 • Relevance: Exact match to query budget/category
 • Recency: ${currentYear} > ${currentYear-1} > ${currentYear-2}. Replace outdated models with ${currentYear}/${currentYear-1} successors
 • Reviews: Amazon.in + Flipkart combined. Deduct 30% for budget brands (boat/Noise/Zebronics)
-• PR Score = platform rating minus fake inflation (subtract 0.1-0.5). PR Score always < platform_rating
+• "rating" and "platform_rating": Your initial estimate based on product category norms (e.g. flagship phones typically 4.3-4.7). These are FALLBACKS only — the real PR Score is computed from live marketplace data (review-count-weighted average minus confidence-based fake-review adjustment). Just estimate honestly, do not artificially gap them.
 • Value: Specs per rupee vs India average
 • Service: Brands with India service centres${loc ? ' near ' + loc : ''}
 
