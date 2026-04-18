@@ -903,21 +903,34 @@ export async function runSearch(
     return { answer:'No AI provider configured. Please add API keys in settings.', aiProducts:[], serpProducts:serpResult.products, relatedSearches:serpResult.relatedSearches, algorithm_version:ALGORITHM_VERSION }
   }
 
-  console.log(`[Search] Trying ${plan.primary.provider}:${plan.primary.model}`)
+  console.log(`[Search] Trying PRIMARY ${plan.primary.provider}:${plan.primary.model}`)
   const r = await callProvider(plan.primary.provider, plan.primary.model, systemPrompt, userMsg, keys)
-  if (r.answer || r.products.length>0) {
-    answer=r.answer; rawProducts=r.products
-    providerUsed=`${plan.primary.provider}:${plan.primary.model}`
+  console.log(`[Search] PRIMARY ${plan.primary.provider} returned: answer=${r.answer.length}chars products=${r.products.length}`)
+  // Primary acceptance: must have products (answer alone with empty products is useless for cards)
+  // But if primary returned the out-of-scope sentinel, respect it immediately
+  if (r.answer === '__OUT_OF_SCOPE__') {
+    answer = r.answer; rawProducts = []
+    providerUsed = `${plan.primary.provider}:${plan.primary.model}`
+  } else if (r.products.length > 0) {
+    answer = r.answer; rawProducts = r.products
+    providerUsed = `${plan.primary.provider}:${plan.primary.model}`
   }
 
-  // Try fallbacks if primary failed
-  for (const fb of plan.fallbacks) {
-    if (answer && rawProducts.length>0) break
-    console.log(`[Search] Fallback → ${fb.provider}:${fb.model}`)
-    const r2 = await callProvider(fb.provider, fb.model, systemPrompt, userMsg, keys)
-    if (r2.answer || r2.products.length>0) {
-      answer=r2.answer; rawProducts=r2.products
-      providerUsed=`${fb.provider}:${fb.model}`
+  // Try fallbacks only if primary didn't give us products AND wasn't out-of-scope
+  if (answer !== '__OUT_OF_SCOPE__') {
+    for (const fb of plan.fallbacks) {
+      if (rawProducts.length > 0) break   // Got what we need from primary/earlier fallback
+      console.log(`[Search] Fallback → ${fb.provider}:${fb.model}`)
+      const r2 = await callProvider(fb.provider, fb.model, systemPrompt, userMsg, keys)
+      console.log(`[Search] FALLBACK ${fb.provider} returned: answer=${r2.answer.length}chars products=${r2.products.length}`)
+      if (r2.answer === '__OUT_OF_SCOPE__') {
+        answer = r2.answer; rawProducts = []
+        providerUsed = `${fb.provider}:${fb.model}`
+        break
+      } else if (r2.products.length > 0) {
+        answer = r2.answer; rawProducts = r2.products
+        providerUsed = `${fb.provider}:${fb.model}`
+      }
     }
   }
 
