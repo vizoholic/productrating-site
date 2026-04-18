@@ -105,9 +105,47 @@ function parseShoppingResults(data: Record<string, unknown>, query: string): Ser
   return { products, relatedSearches, query }
 }
 
+/**
+ * Extract direct seller URL from Google Shopping redirect links.
+ * SerpAPI returns links like:
+ *   https://www.google.com/url?url=https://amazon.in/dp/B0XXX&...
+ *   https://www.google.com/aclk?...&adurl=https://flipkart.com/p/abc
+ *   https://www.google.co.in/search?ibp=oshop&q=...&prds=catalogid:...  (pure Google — no direct link)
+ * Returns the embedded seller URL if found, null otherwise.
+ */
+function extractDirectUrl(googleUrl: string): string | null {
+  if (!googleUrl) return null
+  try {
+    const u = new URL(googleUrl)
+    // Only process Google redirect URLs
+    if (!/(^|\.)google\./.test(u.hostname)) {
+      // Already a direct URL (e.g. amazon.in, flipkart.com)
+      return googleUrl
+    }
+    // Try common query param names where direct URLs are embedded
+    for (const param of ['url', 'adurl', 'q']) {
+      const val = u.searchParams.get(param)
+      if (val && /^https?:\/\//i.test(val)) {
+        const host = new URL(val).hostname
+        // Reject if the "direct" URL is also Google
+        if (!/(^|\.)google\./.test(host)) {
+          return val
+        }
+      }
+    }
+    return null  // Pure Google redirect, no embedded seller URL
+  } catch {
+    return null
+  }
+}
+
 function extractProduct(r: Record<string, unknown>): SerpProduct | null {
   const title = String(r.title || '').trim()
-  const link = String(r.link || r.product_link || '').trim()
+  const rawLink = String(r.link || '').trim()
+  const productLink = String(r.product_link || '').trim()
+  // SerpAPI's Google Shopping API returns Google redirect URLs (google.com/aclk?... or google.com/url?url=...)
+  // Extract the embedded direct seller URL from query params if present
+  const link = extractDirectUrl(rawLink) || productLink || rawLink
   const source = String(r.source || r.seller || '').trim()
   const priceStr = String(r.price || '').trim()
 
