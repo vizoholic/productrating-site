@@ -353,31 +353,20 @@ async function enrichPrices(
       }
     }
 
-    // Ensure Amazon + Flipkart always appear (with search-fallback URL if no match)
-    // Also add Croma, Reliance Digital as additional marketplaces if they had matches
-    const ensurePlatforms = ['Amazon','Flipkart']
-    for (const m of ensurePlatforms) {
-      if (!byPlatform.has(m)) {
-        byPlatform.set(m, { price_str:'', price_num:999999, url:buildSearchUrl(m, ai.name) })
-      }
-    }
-
-    // Sort: real prices ascending, then unavailable at the end
+    // Show ONLY platforms that have real prices — no filler entries
+    // Sort ascending by price, take top 3 cheapest
     const entries = Array.from(byPlatform.entries())
-      .sort((a,b) => {
-        if (a[1].price_num === 999999) return 1
-        if (b[1].price_num === 999999) return -1
-        return a[1].price_num - b[1].price_num
-      })
-      .slice(0, 5)
+      .filter(([, data]) => data.price_num > 0 && data.price_num !== 999999)
+      .sort((a, b) => a[1].price_num - b[1].price_num)
+      .slice(0, 3)
 
     const platform_prices: PlatformPrice[] = entries.map(([platform, data], idx) => ({
       platform,
-      price: data.price_num === 999999 ? '' : data.price_str,
+      price: data.price_str,
       price_numeric: data.price_num,
-      url: data.url,
-      availability: data.price_num === 999999 ? 'unknown' : 'in_stock',
-      is_lowest: idx === 0 && data.price_num !== 999999,
+      url: data.url,  // direct seller URL from SERP
+      availability: 'in_stock',
+      is_lowest: idx === 0,
     }))
     // "Best" = lowest-priced platform that actually has data
     const best = platform_prices.find(p => p.is_lowest) || platform_prices.find(p => p.price_numeric !== 999999) || platform_prices[0]
