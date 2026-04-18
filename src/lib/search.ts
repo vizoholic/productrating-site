@@ -546,11 +546,10 @@ async function enrichPrices(
       result.reviews_verified = true
     }
     if (marketplaceRating) result.marketplace_rating = marketplaceRating
-    // Override AI's guessed ratings with real data when confidence is medium/high
-    if (prComputed.confidence !== 'low') {
-      result.rating = prComputed.pr_score       // real PR Score
-      result.platform_rating = prComputed.platform_rating  // real marketplace weighted average
-    }
+    // Always apply computed PR Score — computePrScore handles low-confidence case internally
+    // (falls back to AI rating with minimal -0.1 adjustment when no SERP data available)
+    result.rating = prComputed.pr_score                // computed PR Score (weighted avg - adjustments)
+    result.platform_rating = prComputed.platform_rating  // weighted average across platforms
     if (bestImage) result.image_url = bestImage
     if (bestDeal) result.deal_tag = bestDeal
     if (bestDelivery) result.delivery = bestDelivery
