@@ -246,8 +246,9 @@ function buildSearchUrl(marketplace: string, productName: string): string {
 // PRICE ENRICHMENT — Skyscanner style
 // ─────────────────────────────────────────────────────────────────────────────
 
-function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['products']): AiProduct[] {
-  return aiProducts.map(ai => {
+async function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['products']): Promise<AiProduct[]> {
+  // Hybrid: first try to match against broad SERP, then do per-product SERP for unmatched
+  return Promise.all(aiProducts.map(async ai => {
     // ── Smart name tokenization: extract key identifiers ──
     // Example: "Apple iPhone 17 Pro Max (256GB)" → tokens: [apple, iphone, 17, pro, max, 256gb]
     // Example: "iQOO Z9x 5G (8GB+128GB)" → tokens: [iqoo, z9x, 5g, 8gb, 128gb]
@@ -268,21 +269,44 @@ function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['p
     // Brand keywords: first 1-2 words typically
     const brandTokens = aiTokens.filter(t => !/\d/.test(t)).slice(0, 3)
 
-    const matched = serpProducts.filter(sp => {
+    let matched = serpProducts.filter(sp => {
       if (!sp.title || !sp.price || !isMarketplace(sp.source)) return false
       const spTokens = new Set(tokenize(sp.title))
 
-      // ALL must-match identifiers must be present (model numbers, storage, etc.)
       if (mustMatch.length > 0) {
         const modelHits = mustMatch.filter(t => spTokens.has(t) || Array.from(spTokens).some(st => st.includes(t))).length
         if (modelHits < Math.max(1, Math.ceil(mustMatch.length * 0.6))) return false
       }
-      // At least one brand word must match
       const brandHit = brandTokens.some(t => spTokens.has(t))
       if (!brandHit && mustMatch.length === 0) return false
-
       return true
     })
+
+    // ── HYBRID FALLBACK: if broad SERP didn't yield 2+ marketplace matches, do a targeted SERP ──
+    // This runs in parallel (enrichPrices is in Promise.all), so only adds latency per-product, not total
+    if (matched.length < 2) {
+      console.log(`[enrichPrices] "${ai.name.slice(0,40)}" broad match=${matched.length}, firing targeted SERP...`)
+      try {
+        const targetedResult = await searchGoogleShopping(ai.name)
+        const targeted = targetedResult.products.filter(sp => {
+          if (!sp.title || !sp.price || !isMarketplace(sp.source)) return false
+          const spTokens = new Set(tokenize(sp.title))
+          // Looser matching for targeted query (already filtered by Google's own ranking)
+          if (mustMatch.length > 0) {
+            const modelHits = mustMatch.filter(t => spTokens.has(t) || Array.from(spTokens).some(st => st.includes(t))).length
+            if (modelHits < Math.max(1, Math.ceil(mustMatch.length * 0.5))) return false
+          }
+          const brandHit = brandTokens.some(t => spTokens.has(t))
+          if (!brandHit && mustMatch.length === 0) return false
+          return true
+        })
+        console.log(`[enrichPrices] "${ai.name.slice(0,40)}" targeted SERP yielded ${targeted.length} matches`)
+        // Merge: prefer targeted results (more specific to this product)
+        matched = [...targeted, ...matched]
+      } catch (e) {
+        console.error(`[enrichPrices] targeted SERP failed for "${ai.name.slice(0,40)}":`, String(e))
+      }
+    }
 
     
     // ── Build per-platform best-price map ──
@@ -395,7 +419,7 @@ function enrichPrices(aiProducts: AiProduct[], serpProducts: SerpSearchResult['p
     console.log(`[enrichPrices] "${ai.name.slice(0,35)}" matches=${matched.length} best=${best?.platform}:${best?.price||'—'} image=${bestImage?'YES':'NO'} reviews=${totalReviews} platforms=[${platform_prices.map(p=>`${p.platform}:${p.price||'—'}`).join(', ')}]`)
 
     return result
-  })
+  }))
 }
 
 function formatReviewCount(n: number): string {
@@ -764,7 +788,7 @@ export async function runSearch(
     aiProducts=[...aiProducts,...fill]
   }
 
-  aiProducts = enrichPrices(aiProducts, serpResult.products)
+  aiProducts = await enrichPrices(aiProducts, serpResult.products)
 
   const result: SearchResult = {
     answer: answer||'Here are the top electronics options for India right now.',
