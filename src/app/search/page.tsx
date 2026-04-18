@@ -99,16 +99,26 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
       <div style={{padding:'22px 22px 0',flex:1}}>
         {p.badge&&<span style={{display:'inline-block',fontSize:10,fontWeight:700,color:'#15803D',background:'rgba(22,163,74,0.08)',border:'1px solid rgba(22,163,74,0.25)',borderRadius:100,padding:'4px 14px',marginBottom:14,fontFamily:'var(--font-mono)',letterSpacing:'0.8px',textTransform:'uppercase'}}>● {p.badge}</span>}
 
-        {/* Product image from live SERP — shown when available */}
-        {p.image_url && (
-          <div style={{position:'relative',width:'100%',aspectRatio:'16/9',background:'#F8F7F4',borderRadius:12,overflow:'hidden',marginBottom:14,border:'1px solid rgba(0,0,0,0.06)'}}>
+        {/* Product image — always show container; fall back to icon if no image */}
+        <div style={{position:'relative',width:'100%',aspectRatio:'16/9',background:'linear-gradient(135deg,#F8F7F4 0%,#F0EEE8 100%)',borderRadius:12,overflow:'hidden',marginBottom:14,border:'1px solid rgba(0,0,0,0.06)',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          {p.image_url ? (
             <img src={p.image_url} alt={p.name} style={{width:'100%',height:'100%',objectFit:'contain',padding:12}} loading="lazy"
-              onError={(e)=>{(e.currentTarget as HTMLImageElement).style.display='none'}}/>
-            {p.deal_tag && (
-              <div style={{position:'absolute',top:10,right:10,background:'#16A34A',color:'#fff',fontSize:10,fontWeight:700,fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',padding:'4px 10px',borderRadius:6,boxShadow:'0 2px 6px rgba(22,163,74,0.25)'}}>🔥 {p.deal_tag}</div>
-            )}
+              onError={(e)=>{
+                const img = e.currentTarget as HTMLImageElement
+                img.style.display='none'
+                const fallback = img.nextElementSibling as HTMLElement
+                if(fallback) fallback.style.display='flex'
+              }}/>
+          ) : null}
+          {/* Fallback icon — shown when image fails or not available */}
+          <div style={{display:p.image_url?'none':'flex',flexDirection:'column',alignItems:'center',gap:8,color:'var(--ink-4)'}}>
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>
+            <span style={{fontSize:10,fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',opacity:0.6}}>Image loading</span>
           </div>
-        )}
+          {p.deal_tag && (
+            <div style={{position:'absolute',top:10,right:10,background:'#16A34A',color:'#fff',fontSize:10,fontWeight:700,fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',padding:'4px 10px',borderRadius:6,boxShadow:'0 2px 6px rgba(22,163,74,0.25)'}}>🔥 {p.deal_tag}</div>
+          )}
+        </div>
         <h3 style={{fontWeight:700,fontSize:19,color:'#0D0D0C',lineHeight:1.25,letterSpacing:'-0.5px',marginBottom:14}}>{p.name}</h3>
 
           {/* Launch date badge */}
