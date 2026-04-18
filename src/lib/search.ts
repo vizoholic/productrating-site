@@ -155,26 +155,30 @@ function routeQuery(question: string, keys: {
 
   // Build available providers in preference order
   const available = {
-    // Perplexity sonar: web-search grounded → real launch dates, current product info
+    // Perplexity sonar: web-search grounded → fallback for recency verification
     perplexity: keys.perplexity ? { provider: 'perplexity' as const, model: 'sonar-pro'        } : null,
-    openai_41:  keys.openai     ? { provider: 'openai'      as const, model: 'gpt-4.1'          } : null,
-    openai_52:  keys.openai     ? { provider: 'openai'      as const, model: 'gpt-5.4'           } : null,
-    claude:     keys.claude     ? { provider: 'claude'      as const, model: 'claude-opus-4-6'   } : null,
-    sarvam:     keys.sarvam     ? { provider: 'sarvam'      as const, model: 'sarvam-m'          } : null,
+    // OpenAI GPT-5.4: latest flagship (Dec 2025 release) — best JSON compliance + current knowledge
+    openai_41:  keys.openai     ? { provider: 'openai'      as const, model: 'gpt-5.4'          } : null,
+    // OpenAI GPT-5.4-mini: faster/cheaper variant for lower-latency tasks
+    openai_52:  keys.openai     ? { provider: 'openai'      as const, model: 'gpt-5.4-mini'     } : null,
+    // Claude Opus 4.7: latest Anthropic flagship (April 16, 2026) — best reasoning
+    claude:     keys.claude     ? { provider: 'claude'      as const, model: 'claude-opus-4-7'  } : null,
+    sarvam:     keys.sarvam     ? { provider: 'sarvam'      as const, model: 'sarvam-m'         } : null,
   }
 
   if (type === 'compare') {
-    // Compare: Claude (best analysis) → OpenAI gpt-5.2 → gpt-4.1 → Sarvammini
-    // Compare: Claude best for analysis, OpenAI gpt-5.2 next, gpt-4.1 fallback, Sarvam last
-    const primary = available.claude || available.openai_52 || available.openai_41 || available.sarvam
-    const fallbacks = [available.openai_52, available.openai_41, available.sarvam]
+    // Compare: Claude Opus 4.7 best for deep analysis, then GPT-5.4, then Perplexity
+    const primary = available.claude || available.openai_52 || available.openai_41 || available.perplexity || available.sarvam
+    const fallbacks = [available.openai_52, available.openai_41, available.perplexity, available.sarvam]
       .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
     return { type, primary: primary!, fallbacks }
   } else {
-    // Simple: Perplexity FIRST (web-grounded = latest India models + current prices)
-    // OpenAI/Claude have knowledge cutoffs — they'll recommend discontinued models confidently
-    const primary = available.perplexity || available.openai_41 || available.claude || available.openai_52 || available.sarvam
-    const fallbacks = [available.openai_41, available.claude, available.openai_52, available.sarvam]
+    // Simple recommendation: OpenAI GPT-5.4 FIRST — highest JSON compliance + latest knowledge
+    // GPT-5.4 has knowledge through late 2025/early 2026, so it knows 2026 phone models.
+    // Perplexity as fallback for its web search when OpenAI fails or returns stale data.
+    // Claude 4.7 is also excellent for structured output.
+    const primary = available.openai_41 || available.claude || available.openai_52 || available.perplexity || available.sarvam
+    const fallbacks = [available.claude, available.openai_52, available.perplexity, available.sarvam]
       .filter((p): p is NonNullable<typeof p> => p !== null && p !== primary)
     return { type, primary: primary!, fallbacks }
   }
