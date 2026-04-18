@@ -42,14 +42,36 @@ export async function searchGoogleShopping(query: string): Promise<SerpSearchRes
   }
 
   // Clean query for Google Shopping:
-  // 1. Expand "20k" / "50k" shorthand to full numbers (Shopping doesn't interpret k)
-  // 2. Strip meta-words that confuse Shopping ranking ("best", "top", "2026")
-  const cleanQuery = query
-    .replace(/(\d+)\s*k\b/gi, (_, n) => String(parseInt(n) * 1000))  // 20k → 20000
-    .replace(/(\d+)\s*lakh\b/gi, (_, n) => String(parseInt(n) * 100000))  // 2 lakh → 200000
-    .replace(/\b(best|top|latest|new|2024|2025|2026)\b/gi, ' ')  // remove meta words
+  // 1. Strip any accidental debug/URL query params (e.g. "?debug=1")
+  // 2. Translate Hindi/Hinglish category words to English (Shopping indexes in English)
+  // 3. Expand "20k" / "50k" shorthand to full numbers
+  // 4. Strip meta-words that confuse Shopping ranking
+  const hindiCategoryMap: Record<string, string> = {
+    'मोबाइल': 'mobile', 'फ़ोन': 'phone', 'फोन': 'phone',
+    'लैपटॉप': 'laptop', 'टीवी': 'tv', 'टेलीविज़न': 'television',
+    'एसी': 'AC', 'ईयरबड्स': 'earbuds', 'इयरफोन': 'earphones', 'हेडफोन': 'headphones',
+    'बेस्ट': '', 'अच्छा': '', 'सबसे': '', 'में': '', 'के': '', 'का': '',
+    'एक लाख': '100000', 'दो लाख': '200000',
+  }
+  let cleanQuery = query
+    // Strip URL params accidentally appended to query
+    .replace(/[?&](?:debug|q|utm_[a-z]+)=\w+/gi, '')
+    .trim()
+
+  // Translate Hindi tokens to English equivalents
+  for (const [hi, en] of Object.entries(hindiCategoryMap)) {
+    cleanQuery = cleanQuery.replace(new RegExp(hi, 'g'), en)
+  }
+
+  cleanQuery = cleanQuery
+    .replace(/(\d+)\s*k\b/gi, (_, n) => String(parseInt(n) * 1000))         // 20k → 20000
+    .replace(/(\d+)\s*lakh\b/gi, (_, n) => String(parseInt(n) * 100000))    // 2 lakh → 200000
+    .replace(/\b(best|top|latest|new|2024|2025|2026)\b/gi, ' ')               // remove meta words
+    .replace(/₹/g, 'Rs ')                                                        // Rupee symbol → Rs
+    .replace(/[,]/g, '')                                                         // Strip comma separators in numbers
     .replace(/\s+/g, ' ')
     .trim() || query  // fall back to original if cleanup leaves empty string
+
   console.log(`[SERP] query="${query}" cleaned="${cleanQuery}"`)
 
   const params = new URLSearchParams({
