@@ -38,6 +38,9 @@ export type AiProduct = {
   marketplace_rating?: number // real rating from listing
   platform_prices?: PlatformPrice[]
   best_price?: string; best_price_platform?: string; best_price_url?: string
+  // Price sanity check — AI provides expected range; SERP matches outside this range are filtered
+  price_min_expected?: number   // e.g. 15000 for earbuds under 20k
+  price_max_expected?: number   // e.g. 25000 (20% buffer above user budget)
 }
 
 export type DebugInfo = {
@@ -55,6 +58,7 @@ export type DebugInfo = {
     image_found: boolean
     reviews_count: number
     platform_prices_count: number
+    expected_range: string  // e.g. "17000-24000" or "none"
   }>
 }
 
@@ -226,6 +230,8 @@ function sanitise(p: Record<string,unknown>, i: number): AiProduct {
           price_approx: String((p.newer_version as Record<string,unknown>).price_approx || ''),
         }
       : null,
+    price_min_expected: Number(p.price_min_expected) > 0 ? Number(p.price_min_expected) : undefined,
+    price_max_expected: Number(p.price_max_expected) > 0 ? Number(p.price_max_expected) : undefined,
     platform_prices: [], best_price: '', best_price_platform: '', best_price_url: '',
   }
 }
@@ -292,8 +298,21 @@ async function enrichPrices(
     // Brand keywords: first 1-2 words typically
     const brandTokens = aiTokens.filter(t => !/\d/.test(t)).slice(0, 3)
 
+    // Price sanity: build range from AI's expected values
+    // Use wide tolerance (50% below min, 20% above max) so discounts/variants don't get filtered out
+    const priceFloor = ai.price_min_expected ? Math.max(100, Math.floor(ai.price_min_expected * 0.5)) : 0
+    const priceCeil = ai.price_max_expected ? Math.ceil(ai.price_max_expected * 1.2) : 99999999
+
+    const passesPriceSanity = (sp: SerpSearchResult['products'][number]): boolean => {
+      if (!ai.price_min_expected && !ai.price_max_expected) return true  // AI didn't provide range
+      const n = sp.price_numeric || 0
+      if (n < priceFloor || n > priceCeil) return false
+      return true
+    }
+
     let matched = serpProducts.filter(sp => {
       if (!sp.title || !sp.price || !isMarketplace(sp.source)) return false
+      if (!passesPriceSanity(sp)) return false  // reject wrong-priced accessories/knockoffs
       const spTokens = new Set(tokenize(sp.title))
 
       if (mustMatch.length > 0) {
@@ -316,6 +335,7 @@ async function enrichPrices(
         const targetedResult = await searchGoogleShopping(ai.name)
         const targeted = targetedResult.products.filter(sp => {
           if (!sp.title || !sp.price || !isMarketplace(sp.source)) return false
+          if (!passesPriceSanity(sp)) return false  // same price sanity check
           const spTokens = new Set(tokenize(sp.title))
           // Looser matching for targeted query (already filtered by Google's own ranking)
           if (mustMatch.length > 0) {
@@ -345,10 +365,13 @@ async function enrichPrices(
       if (priceNum <= 0) continue  // skip junk
       const existing = byPlatform.get(key)
       if (!existing || priceNum < existing.price_num) {
+        // Use SERP link only if it's a real seller URL (not a google.com redirect)
+        const serpLinkIsDirect = sp.link && !/^https?:\/\/(www\.)?google\./i.test(sp.link)
+        const finalUrl = (serpLinkIsDirect && isMarketplace(sp.source)) ? sp.link : buildSearchUrl(key, ai.name)
         byPlatform.set(key, {
           price_str: sp.price,
           price_num: priceNum,
-          url: (sp.link && isMarketplace(sp.source)) ? sp.link : buildSearchUrl(key, ai.name),
+          url: finalUrl,
         })
       }
     }
@@ -436,6 +459,9 @@ async function enrichPrices(
 
     // Collect debug info
     if (debugCollector) {
+      const rangeStr = (ai.price_min_expected || ai.price_max_expected)
+        ? `${ai.price_min_expected||0}-${ai.price_max_expected||0} (floor:${priceFloor}, ceil:${priceCeil})`
+        : 'none'
       debugCollector.push({
         name: ai.name.slice(0, 80),
         matched: matched.length,
@@ -446,6 +472,7 @@ async function enrichPrices(
         image_found: !!bestImage,
         reviews_count: totalReviews,
         platform_prices_count: platform_prices.filter(pp => pp.price_numeric !== 999999).length,
+        expected_range: rangeStr,
       })
     }
 
@@ -490,15 +517,18 @@ Return ONLY valid JSON — no text before or after:
       "avoid_if": "<who should not buy this>",
       "successor_of": null,
       "launch_date_india": "<ACCURATE month+year of India launch e.g. 'January 2025' — search if unsure>",
-      "newer_version": { "name": "<newer successor model if exists>", "reason": "<what improved>", "price_approx": "—" }
+      "newer_version": { "name": "<newer successor model if exists>", "reason": "<what improved>", "price_approx": "—" },
+      "price_min_expected": <integer INR — lowest realistic price for THIS specific product in India>,
+      "price_max_expected": <integer INR — highest realistic price (MRP ceiling) for THIS product>
     },
-    { "name":"...", "price":"—", "seller":"...", "rating":0.0, "platform_rating":0.0, "reviews":"...", "badge":"Best Value", "score":0, "reason":"...", "pros":["...","..."], "cons":["..."], "avoid_if":"...", "successor_of":null, "launch_date_india":"...", "newer_version":null },
+    { "name":"...", "price":"—", "seller":"...", "rating":0.0, "platform_rating":0.0, "reviews":"...", "badge":"Best Value", "score":0, "reason":"...", "pros":["...","..."], "cons":["..."], "avoid_if":"...", "successor_of":null, "launch_date_india":"...", "newer_version":null, "price_min_expected":0, "price_max_expected":0 },
     { "name":"...", "price":"—", "seller":"...", "rating":0.0, "platform_rating":0.0, "reviews":"...", "badge":"Budget Pick", "score":0, "reason":"...", "pros":["...","..."], "cons":["..."], "avoid_if":"...", "successor_of":null, "launch_date_india":"...", "newer_version":null }
   ]
 }
 
 IMPORTANT RULES:
 • "price" field: Always set to "—" — real prices come from live shopping data, never hallucinate prices
+• "price_min_expected" / "price_max_expected": Realistic INR range for THIS SPECIFIC product in India (NOT the user's budget). Used to filter out wrong-product matches (e.g. accessories, knockoffs). Be GENEROUS — include discount prices AND MRP. Example: for "realme Narzo 70 Pro 5G (8GB/128GB)" → min 17000, max 24000. For "Sony WF-1000XM5 earbuds" → min 22000, max 29000. NEVER return 0 or negative.
 • "launch_date_india": MUST be accurate India launch date (not global). Search your knowledge carefully. Format: "Month Year" e.g. "January 2025". If unsure, write "2024" or "2025" as approximate year only.
 • "newer_version": Set to null if this IS the newest model. Populate only when a confirmed successor exists.
 
