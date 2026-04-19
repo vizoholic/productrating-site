@@ -609,13 +609,14 @@ function formatReviewCount(n: number): string {
 
 function buildSystemPrompt(lang: string, loc: string, monthYear: string, currentYear: number): string {
   const locationNote = loc ? `User location: ${loc}.` : ''
+  const langBlock = lang ? `\n=== CRITICAL: OUTPUT LANGUAGE ===\n${lang}\nThis applies to ALL text fields: "answer", "reason", "pros", "cons", "avoid_if". The voice examples below are in English for demonstration — you MUST translate the VOICE and TONE into the user's language, not copy English verbatim. Product names stay in English (e.g. "Realme Narzo 80 Pro 5G"). Everything else in the user's language.\n=== END LANGUAGE RULE ===\n` : ''
   return `You are ProductRating.in's lead electronics reviewer — the voice behind India's most honest product recommendations, as of ${monthYear}.
-
+${langBlock}
 You write like a tech reviewer at MySmartPrice or GSMArena: analytical, trade-off focused, specific. You've used these products. You know which spec sheets lie and which reviews are seeded. You tell buyers the real answer, including when the "best" choice depends on what they prioritize.
 
 SCOPE: Consumer electronics only — smartphones, laptops, tablets, TVs, air conditioners, refrigerators, washing machines, headphones/earbuds, speakers, smartwatches, cameras, kitchen appliances, chargers, peripherals, gaming consoles, accessories. You handle queries in English, Hindi, Hinglish, Tamil, Telugu, Bengali, Kannada, Malayalam, Marathi, and other Indian languages.
 If the question is NOT about consumer electronics, return: {"answer": "", "products": [], "out_of_scope": true}
-${lang ? lang + '\n' : ''}${locationNote ? locationNote + '\n' : ''}
+${locationNote ? locationNote + '\n' : ''}
 Return ONLY valid JSON — no text before or after:
 {
   "answer": "<3-5 sentences of genuinely useful framing. Open with the default recommendation for most buyers. Mention 1-2 real trade-offs a shopper would care about (not generic 'great value'). Optionally flag timing ('prices drop during Flipkart Big Billion Days') or a specific gotcha ('LCD not AMOLED — matters if you watch movies'). Write like you've held the product, not read the spec sheet.>",
@@ -644,19 +645,24 @@ Return ONLY valid JSON — no text before or after:
   ]
 }
 
-=== VOICE EXAMPLES — study these, match this register ===
+=== VOICE EXAMPLES — match this REGISTER (style + specificity + honesty). Translate INTO the user's language. ===
 
-GOOD reason: "If battery life and gaming matter most, this is the standout. 7200mAh gets real 2-day use and the Dimensity 7400 Turbo handles BGMI at 60fps without frame drops. The catch: it's LCD not AMOLED, so if you watch a lot of Netflix, Redmi's offering is sharper."
+GOOD reason (English): "If battery life and gaming matter most, this is the standout. 7200mAh gets real 2-day use and the Dimensity 7400 Turbo handles BGMI at 60fps without frame drops. The catch: it's LCD not AMOLED, so if you watch a lot of Netflix, Redmi's offering is sharper."
 
-GOOD reason: "For the buyer who doesn't want drama, this is the safe pick. Nothing spectacular, nothing broken — solid chipset, reliable software updates, decent cameras. Buy this if you'd rather not research every feature and just want something that works for 3 years."
+GOOD reason (Hindi equivalent — when user asks in Hindi): "अगर battery और gaming priority है तो यह standout है। 7200mAh real 2 दिन चलती है और Dimensity 7400 Turbo BGMI में 60fps होल्ड करता है — frame drops नहीं। Catch यह है: display LCD है, AMOLED नहीं। Netflix बहुत देखते हैं तो Redmi का option sharper लगेगा।"
 
-GOOD reason: "The spec sheet darling at this price. Dimensity 7400 Turbo plus UFS 3.1 plus 12GB RAM is unusual here. Downside: Realme's software still pushes bloatware aggressively in notifications — you'll spend 15 minutes cleaning it up out of the box."
+GOOD reason (Tamil equivalent — when user asks in Tamil): "Battery-um gaming-um main priority-na, idhu dhaan standout. 7200mAh real-world 2 naal varum, Dimensity 7400 Turbo BGMI-la 60fps stable-a handle panradhu. Aana ondru — display LCD, AMOLED illa. Netflix niraya paarpinga-na Redmi option sharper-a irukkum."
 
-GOOD answer: "For most buyers under ₹20k right now, the Realme Narzo 80 Pro 5G is the default pick — balanced specs, IP69 durability, and consistent 80W charging. If you game a lot, iQOO Z11x's bigger battery wins. Worth knowing: prices in this bracket typically drop ₹1500-2500 during Flipkart Big Billion Days, so if you can wait until September sales, the same phones get cheaper."
+GOOD reason (English): "For the buyer who doesn't want drama, this is the safe pick. Nothing spectacular, nothing broken — solid chipset, reliable software updates, decent cameras. Buy this if you'd rather not research every feature and just want something that works for 3 years."
+
+GOOD answer (English): "For most buyers under ₹20k right now, the Realme Narzo 80 Pro 5G is the default pick — balanced specs, IP69 durability, and consistent 80W charging. If you game a lot, iQOO Z11x's bigger battery wins. Worth knowing: prices in this bracket typically drop ₹1500-2500 during Flipkart Big Billion Days, so if you can wait until September sales, the same phones get cheaper."
+
+GOOD answer (Hindi equivalent): "₹20,000 के budget में अभी most buyers के लिए default choice Realme Narzo 80 Pro 5G है — balanced specs, IP69 durability, और consistent 80W charging। अगर gaming ज्यादा करते हैं तो iQOO Z11x की बड़ी battery जीतती है। एक बात जानने लायक: इस price bracket में Flipkart Big Billion Days के दौरान ₹1500-2500 discount आता है।"
 
 BAD reason (do NOT write like this): "Best 5G phone under ₹15,000, feature-rich, balanced, great value for money!"
 BAD reason: "MediaTek Dimensity 7050 processor with Sony IMX890 camera — perfect for this budget!"
 BAD answer: "Under ₹20,000 you should buy the Realme Narzo 80 Pro 5G. It is the best option."
+BAD (WRONG LANGUAGE — user asked in Hindi): responding in English when user wrote in Hindi. If the user uses Hindi/Tamil/Bengali/etc, mirror that language.
 
 === RULES ===
 • price: always "—". Live prices come from SERP data, never hallucinate.
@@ -674,7 +680,8 @@ BAD answer: "Under ₹20,000 you should buy the Realme Narzo 80 Pro 5G. It is th
 • Service: brands with India service centres${loc ? ' near ' + loc : ''}.
 
 === PERSONA ENFORCEMENT ===
-You are NOT a marketing writer. You are NOT a sales assistant. You are an opinionated reviewer who has used these products and respects the reader's time. If your output reads like promo copy ("feature-rich", "balanced", "great value", "perfect for you"), rewrite it. Every sentence should be something a human who knows phones would actually say to a friend.`
+You are NOT a marketing writer. You are NOT a sales assistant. You are an opinionated reviewer who has used these products and respects the reader's time. If your output reads like promo copy ("feature-rich", "balanced", "great value", "perfect for you"), rewrite it. Every sentence should be something a human who knows phones would actually say to a friend.
+${lang ? '\n=== FINAL REMINDER — OUTPUT LANGUAGE ===\n' + lang + '\nThis is non-negotiable. Write "answer", "reason", "pros", "cons", "avoid_if" in the target language. Product names stay in English. If you draft in English first, translate before returning JSON. The user asked in their language — responding in a different language is WRONG.\n' : ''}`
 }
 
 
@@ -850,6 +857,132 @@ function langInstructionFromSarvamCode(code: string): string {
   }
   return map[code] || ''
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST-PROCESSING: ensure LLM output is in the user's language
+// Strategy: detect script, if mismatch → Sarvam-translate back as fallback
+// This handles the ~5% case where LLM ignores the language instruction
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Check if text contains script for a given BCP-47 language code
+function textMatchesLanguageScript(text: string, langCode: string): boolean {
+  if (!text || !text.trim()) return true  // empty text → skip check
+  const t = text.slice(0, 500)  // sample first 500 chars for speed
+  // Check for script characters matching the target language
+  const scriptChecks: Record<string, RegExp> = {
+    'hi-IN': /[\u0900-\u097F]/,  // Devanagari (Hindi, Marathi, Nepali, Sanskrit, Konkani, Maithili, Bodo, Dogri)
+    'mr-IN': /[\u0900-\u097F]/,
+    'ne-IN': /[\u0900-\u097F]/,
+    'sa-IN': /[\u0900-\u097F]/,
+    'kok-IN': /[\u0900-\u097F]/,
+    'mai-IN': /[\u0900-\u097F]/,
+    'brx-IN': /[\u0900-\u097F]/,
+    'doi-IN': /[\u0900-\u097F]/,
+    'bn-IN': /[\u0980-\u09FF]/,  // Bengali (also Assamese)
+    'as-IN': /[\u0980-\u09FF]/,
+    'ta-IN': /[\u0B80-\u0BFF]/,  // Tamil
+    'te-IN': /[\u0C00-\u0C7F]/,  // Telugu
+    'kn-IN': /[\u0C80-\u0CFF]/,  // Kannada
+    'ml-IN': /[\u0D00-\u0D7F]/,  // Malayalam
+    'gu-IN': /[\u0A80-\u0AFF]/,  // Gujarati
+    'pa-IN': /[\u0A00-\u0A7F]/,  // Gurmukhi (Punjabi)
+    'or-IN': /[\u0B00-\u0B7F]/,  // Odia
+    'od-IN': /[\u0B00-\u0B7F]/,
+    'ur-IN': /[\u0600-\u06FF]/,  // Arabic script (Urdu, Kashmiri, Sindhi)
+    'ks-IN': /[\u0600-\u06FF]/,
+    'sd-IN': /[\u0600-\u06FF]/,
+    'mni-IN': /[\uABC0-\uABFF]|[\u0980-\u09FF]/,  // Meitei Mayek or Bengali script
+    'sat-IN': /[\u1C50-\u1C7F]|[\u0900-\u097F]/,   // Ol Chiki or Devanagari
+  }
+  const rx = scriptChecks[langCode]
+  if (!rx) return true  // English or unknown → no check
+  return rx.test(t)
+}
+
+// Translate a string from English to target language using Sarvam.
+// Used as a fallback when LLM ignores the language instruction.
+async function sarvamTranslateFromEnglish(
+  text: string, targetLangCode: string, apiKey: string
+): Promise<string> {
+  if (!apiKey || !text.trim() || !targetLangCode || targetLangCode === 'en-IN' || targetLangCode === 'en-US') {
+    return text
+  }
+  try {
+    const res = await fetch('https://api.sarvam.ai/translate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'api-subscription-key': apiKey,
+      },
+      body: JSON.stringify({
+        input: text.slice(0, 1800),  // Sarvam Translate:v1 max 2000 chars
+        source_language_code: 'en-IN',
+        target_language_code: targetLangCode,
+        model: 'sarvam-translate:v1',
+        mode: 'formal',
+        enable_preprocessing: false,
+      }),
+    })
+    const raw = await res.text()
+    if (!res.ok) {
+      console.error(`[Sarvam:TranslateBack] HTTP ${res.status}: ${raw.slice(0, 150)}`)
+      return text
+    }
+    const d = JSON.parse(raw) as { translated_text?: string }
+    return (d.translated_text || text).trim()
+  } catch (e) {
+    console.error('[Sarvam:TranslateBack] error:', String(e))
+    return text
+  }
+}
+
+// Ensure all user-facing text fields of an AI product are in the target language.
+// Only translates fields that are in the wrong script (cheap) — does NOT touch product name.
+async function ensureProductLanguage(
+  p: AiProduct, targetLangCode: string, apiKey: string
+): Promise<AiProduct> {
+  if (!targetLangCode || targetLangCode === 'en-IN' || targetLangCode === 'en-US') return p
+
+  // Fields that should be in user's language (leave `name`, `seller`, `price` alone)
+  // Narrow to string-valued keys only so we don't accidentally clobber numeric fields.
+  type StringFields = 'reason' | 'avoid_if'
+  const toCheck: StringFields[] = ['reason', 'avoid_if']
+  const translations: Partial<Record<StringFields, string>> = {}
+
+  for (const field of toCheck) {
+    const val = p[field]
+    if (typeof val === 'string' && val.trim() && !textMatchesLanguageScript(val, targetLangCode)) {
+      translations[field] = await sarvamTranslateFromEnglish(val, targetLangCode, apiKey)
+    }
+  }
+
+  // Pros and cons arrays
+  let translatedPros = p.pros
+  let translatedCons = p.cons
+  if (Array.isArray(p.pros) && p.pros.length > 0) {
+    const joined = p.pros.join(' | ')
+    if (!textMatchesLanguageScript(joined, targetLangCode)) {
+      const translated = await sarvamTranslateFromEnglish(joined, targetLangCode, apiKey)
+      translatedPros = translated.split(' | ').map(s => s.trim()).filter(Boolean)
+    }
+  }
+  if (Array.isArray(p.cons) && p.cons.length > 0) {
+    const joined = p.cons.join(' | ')
+    if (!textMatchesLanguageScript(joined, targetLangCode)) {
+      const translated = await sarvamTranslateFromEnglish(joined, targetLangCode, apiKey)
+      translatedCons = translated.split(' | ').map(s => s.trim()).filter(Boolean)
+    }
+  }
+
+  const hasChanges = Object.keys(translations).length > 0 || translatedPros !== p.pros || translatedCons !== p.cons
+  if (hasChanges) {
+    console.log(`[LangCheck] "${p.name.slice(0,30)}" → translated ${Object.keys(translations).length + (translatedPros !== p.pros ? 1 : 0) + (translatedCons !== p.cons ? 1 : 0)} field(s) back to ${targetLangCode}`)
+  }
+
+  return { ...p, ...translations, pros: translatedPros, cons: translatedCons }
+}
+
+
 
 // Fast-path: returns true if text is pure ASCII (no translation needed → skip Sarvam call, save 300ms)
 function isPureAscii(text: string): boolean {
@@ -1049,8 +1182,12 @@ export async function runSearch(
   const serpContext = buildProductContext(serpResult)
 
   const systemPrompt = buildSystemPrompt(lang, loc, monthYear, currentYear)
-  // Send English-translated query to LLM (better reasoning); lang instruction tells LLM to reply in user's language
-  const userMsg = `Question: ${englishQuery}${loc?`\nLocation: ${loc}`:''}` +
+  // Send BOTH original question (preserves language signal) AND English translation (better reasoning).
+  // Language instruction inlined in user turn so LLM has zero ambiguity about output language.
+  const queryBlock = question !== englishQuery
+    ? `Original question (user wrote this in their own language): ${question}\nEnglish translation (for your reasoning only, do NOT use this language in your response): ${englishQuery}${lang ? '\n\nLANGUAGE INSTRUCTION: ' + lang + ' The user wrote in their own language. Mirror that language in your entire response.' : ''}`
+    : `Question: ${question}`
+  const userMsg = `${queryBlock}${loc?`\nLocation: ${loc}`:''}` +
     (serpContext ? `\n\n=== LIVE PRODUCTS CURRENTLY ON SALE IN INDIA (${monthYear}) ===\nThese are the actual products available on Amazon/Flipkart/Croma RIGHT NOW. Prefer models that appear here — they are confirmed available. If a model you recall is missing from this list, it may be discontinued.\n${serpContext}\n=== END LIVE DATA ===` : '')
 
   // Try primary provider
@@ -1162,6 +1299,22 @@ export async function runSearch(
     algorithm_version: ALGORITHM_VERSION,
     _debug: debugInfo,
   }
+  // ── Post-process: ensure all user-facing text is in the detected language ──
+  // Fallback for the rare case where LLM ignored the language instruction.
+  // Only translates fields whose script doesn't match — zero cost when LLM obeyed.
+  if (detectedLang && detectedLang !== 'en-IN' && detectedLang !== 'en-US' && sarvamKey) {
+    // Check if the `answer` field is in correct script
+    if (answer && !textMatchesLanguageScript(answer, detectedLang)) {
+      console.log(`[LangCheck] answer was in wrong script for ${detectedLang}, translating back`)
+      answer = await sarvamTranslateFromEnglish(answer, detectedLang, sarvamKey)
+      result.answer = answer
+    }
+    // Translate product fields in parallel
+    result.aiProducts = await Promise.all(
+      result.aiProducts.map(p => ensureProductLanguage(p, detectedLang, sarvamKey))
+    )
+  }
+
   cache.set(cacheKey, { result, ts:Date.now() })
   console.log(`[Search] Done — provider=${providerUsed} products=${aiProducts.length}`)
   return result
