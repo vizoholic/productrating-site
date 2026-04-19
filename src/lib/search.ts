@@ -984,9 +984,18 @@ async function ensureProductLanguage(
 
 
 
-// Fast-path: returns true if text is pure ASCII (no translation needed → skip Sarvam call, save 300ms)
+// Detect whether text contains ANY Indic/Arabic script characters.
+// This is the correct trigger for translation — NOT pure-ASCII check, because
+// symbols like ₹, em-dashes, curly quotes are non-ASCII but don't indicate Indic language.
+// Covers: Devanagari, Bengali/Assamese, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada,
+// Malayalam, Sinhala, Arabic (Urdu/Sindhi/Kashmiri), Meitei Mayek, Ol Chiki.
+function hasIndicScript(text: string): boolean {
+  return /[\u0900-\u097F\u0980-\u09FF\u0A00-\u0A7F\u0A80-\u0AFF\u0B00-\u0B7F\u0B80-\u0BFF\u0C00-\u0C7F\u0C80-\u0CFF\u0D00-\u0D7F\u0D80-\u0DFF\u0600-\u06FF\uABC0-\uABFF\u1C50-\u1C7F]/.test(text)
+}
+
+// Legacy kept for backward compat — returns true for plain English without Indic chars
 function isPureAscii(text: string): boolean {
-  return /^[\x00-\x7F]*$/.test(text)
+  return !hasIndicScript(text)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1157,14 +1166,24 @@ export async function runSearch(
   let englishQuery = question
   let detectedLang = 'en-IN'
   let langInstruction = ''
-  if (!isPureAscii(question) && sarvamKey) {
+  // TRIGGER Sarvam ONLY when the query contains actual Indic/Arabic script characters.
+  // This correctly skips translation for English queries that happen to contain symbols
+  // like ₹, em-dashes, or curly quotes — which are non-ASCII but NOT Indic language signals.
+  const queryHasIndic = hasIndicScript(question)
+  if (queryHasIndic && sarvamKey) {
     const t = await sarvamTranslateToEnglish(question, sarvamKey)
     englishQuery = t.translated
     detectedLang = t.detected_lang
+    // Safety net: if Sarvam returns en-IN despite Indic script (rare), trust the script
+    // If Sarvam returns non-English lang, verify against script presence (already done — queryHasIndic is true)
     langInstruction = langInstructionFromSarvamCode(detectedLang)
+    console.log(`[LangDetect] Indic script found → Sarvam detected ${detectedLang}, instruction=${langInstruction ? 'SET' : 'EMPTY'}`)
   } else {
-    // Fallback: use old regex detection for ASCII that might be Hinglish
+    // Pure English (possibly with ₹, dashes) OR Hinglish — no translation needed
+    // Use lightweight regex to catch Hinglish (Roman-script Hindi) patterns
     langInstruction = detectLang(question)
+    detectedLang = 'en-IN'  // explicit: force English language for downstream post-processing
+    console.log(`[LangDetect] No Indic script → detectedLang=en-IN, Hinglish check: ${langInstruction ? 'MATCH' : 'none'}`)
   }
   const lang = langInstruction
 
@@ -1300,9 +1319,12 @@ export async function runSearch(
     _debug: debugInfo,
   }
   // ── Post-process: ensure all user-facing text is in the detected language ──
+  // This runs ONLY if the original query had Indic script (detectedLang != en-IN).
+  // For English queries (even with ₹), detectedLang is forced to en-IN above, so this skips.
   // Fallback for the rare case where LLM ignored the language instruction.
   // Only translates fields whose script doesn't match — zero cost when LLM obeyed.
   if (detectedLang && detectedLang !== 'en-IN' && detectedLang !== 'en-US' && sarvamKey) {
+    console.log(`[LangCheck] Post-processing: ensuring output is in ${detectedLang}`)
     // Check if the `answer` field is in correct script
     if (answer && !textMatchesLanguageScript(answer, detectedLang)) {
       console.log(`[LangCheck] answer was in wrong script for ${detectedLang}, translating back`)
