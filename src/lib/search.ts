@@ -60,6 +60,7 @@ export type DebugInfo = {
     image_found: boolean
     reviews_count: number
     platform_prices_count: number
+    platforms_rejected?: string
     expected_range: string  // e.g. "17000-24000" or "none"
     pr_score_details: string  // e.g. "platform 4.35 → PR 4.15 (med conf, -0.2)"
   }>
@@ -425,33 +426,35 @@ async function enrichPrices(
       return true
     }
 
+    // Track rejections for debug observability — knowing WHY matches get rejected is
+    // critical for audit. Without this we can't tell if it's tokens, brand, or price sanity.
+    const rejected = { not_marketplace: 0, no_price: 0, price_sanity: 0, model_tokens: 0, brand: 0 }
     let matched = serpProducts.filter(sp => {
-      if (!sp.title || !sp.price || !isMarketplace(sp.source)) return false
-      if (!passesPriceSanity(sp)) return false  // reject wrong-priced accessories/knockoffs
+      if (!sp.title || !sp.price) { rejected.no_price++; return false }
+      if (!isMarketplace(sp.source)) { rejected.not_marketplace++; return false }
+      if (!passesPriceSanity(sp)) { rejected.price_sanity++; return false }
       const spTokens = new Set(tokenize(sp.title))
 
       if (mustMatch.length > 0) {
-        // Match if ANY model-specific token hits (relaxed from 60% to catch more variants)
-        // Examples this now catches:
-        //   "Redmi 15 5G (8GB/128GB)" vs Amazon "Redmi 15 5G (Blue 6GB RAM 128GB)" — 15/5g/128gb match
-        //   "Motorola Edge 60 (8GB/256GB)" vs "Motorola Edge 60 Neo 8GB 256GB" — edge/60/8gb/256gb match
         const modelHits = mustMatch.filter(t => spTokens.has(t) || Array.from(spTokens).some(st => st.includes(t))).length
-        // Require at least 40% of mustMatch tokens (was 60%) — BUT always require the brand
-        if (modelHits < Math.max(1, Math.ceil(mustMatch.length * 0.4))) return false
+        if (modelHits < Math.max(1, Math.ceil(mustMatch.length * 0.4))) { rejected.model_tokens++; return false }
       }
-      // Brand MUST match when we have mustMatch tokens (prevents cross-brand pollution)
       const brandHit = brandTokens.some(t => spTokens.has(t))
-      if (!brandHit) return false
+      if (!brandHit) { rejected.brand++; return false }
       return true
     })
+    console.log(`[enrichPrices] "${ai.name.slice(0,30)}" SERP filter: matched=${matched.length} rejected={marketplace:${rejected.not_marketplace}, no_price:${rejected.no_price}, price_sanity:${rejected.price_sanity}, tokens:${rejected.model_tokens}, brand:${rejected.brand}}`)
 
-    // ── HYBRID FALLBACK: if broad SERP didn't yield 2+ marketplace matches, do a targeted SERP ──
-    // This runs in parallel (enrichPrices is in Promise.all), so only adds latency per-product, not total
+    // ── HYBRID FALLBACK: fire targeted SERP when we don't have 3 distinct platforms ──
+    // User goal is "at least 3 platforms for price comparison". We check DISTINCT PLATFORMS
+    // (via normaliseMarketplace), not raw match count — 5 Flipkart listings still = 1 platform.
+    // This runs in parallel (enrichPrices is in Promise.all), so only adds latency per-product.
+    const distinctPlatforms = new Set(matched.map(sp => normaliseMarketplace(sp.source))).size
     let usedTargetedSerp = false
     let targetedMatchCount = 0
-    if (matched.length < 2) {
+    if (distinctPlatforms < 3) {
       usedTargetedSerp = true
-      console.log(`[enrichPrices] "${ai.name.slice(0,40)}" broad match=${matched.length}, firing targeted SERP...`)
+      console.log(`[enrichPrices] "${ai.name.slice(0,40)}" broad match=${matched.length} platforms=${distinctPlatforms}, firing targeted SERP...`)
       try {
         const targetedResult = await searchGoogleShopping(ai.name)
         const targeted = targetedResult.products.filter(sp => {
@@ -514,7 +517,8 @@ async function enrichPrices(
       is_lowest: idx === 0,
     }))
     // "Best" = lowest-priced platform that actually has data
-    const best = platform_prices.find(p => p.is_lowest) || platform_prices.find(p => p.price_numeric !== 999999) || platform_prices[0]
+    // After sort+slice above, platform_prices[0] is always the cheapest valid listing (or undefined if empty).
+    const best = platform_prices[0]
 
 
 
@@ -549,7 +553,7 @@ async function enrichPrices(
     const bestDelivery = matched
       .filter(sp => sp.delivery && normaliseMarketplace(sp.source) === (best?.platform||'Amazon'))[0]?.delivery
 
-    const hasRealPrice = best && best.price_numeric !== 999999 && best.price
+    const hasRealPrice = !!(best && best.price && best.price_numeric > 0)
     const result: AiProduct = {
       ...ai,
       platform_prices,
@@ -592,7 +596,8 @@ async function enrichPrices(
         best_price: best?.price || '',
         image_found: !!bestImage,
         reviews_count: totalReviews,
-        platform_prices_count: platform_prices.filter(pp => pp.price_numeric !== 999999).length,
+        platform_prices_count: platform_prices.length,
+        platforms_rejected: `marketplace:${rejected.not_marketplace}|no_price:${rejected.no_price}|price_sanity:${rejected.price_sanity}|tokens:${rejected.model_tokens}|brand:${rejected.brand}`,
         expected_range: rangeStr,
         pr_score_details: prDetails,
       })
