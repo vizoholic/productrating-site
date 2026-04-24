@@ -607,6 +607,39 @@ function formatReviewCount(n: number): string {
 // SHARED SYSTEM PROMPT
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Return voice examples in the user's target language. Empty string for English.
+// This prevents Devanagari/Tamil/etc. characters from leaking into the prompt
+// for English queries — which biases models toward non-English output.
+function inLangVoiceExamples(lang: string): string {
+  if (!lang) return ''
+  const l = lang.toLowerCase()
+  if (l.includes('hindi')) {
+    return `
+
+GOOD reason (Hindi — when user asks in Hindi): "अगर battery और gaming priority है तो यह standout है। 7200mAh real 2 दिन चलती है और Dimensity 7400 Turbo BGMI में 60fps होल्ड करता है — frame drops नहीं। Catch यह है: display LCD है, AMOLED नहीं। Netflix बहुत देखते हैं तो Redmi का option sharper लगेगा।"
+
+GOOD answer (Hindi): "Rs 20,000 के budget में अभी most buyers के लिए default choice Realme Narzo 80 Pro 5G है — balanced specs, IP69 durability, और consistent 80W charging। अगर gaming ज्यादा करते हैं तो iQOO Z11x की बड़ी battery जीतती है।"
+`
+  }
+  if (l.includes('tamil')) {
+    return `
+
+GOOD reason (Tamil — when user asks in Tamil): "Battery-um gaming-um main priority-na, idhu dhaan standout. 7200mAh real-world 2 naal varum, Dimensity 7400 Turbo BGMI-la 60fps stable-a handle panradhu. Aana ondru — display LCD, AMOLED illa. Netflix niraya paarpinga-na Redmi option sharper-a irukkum."
+`
+  }
+  if (l.includes('hinglish')) {
+    return `
+
+GOOD reason (Hinglish): "Agar battery aur gaming matter karte hain, toh ye standout hai. 7200mAh se real 2 din ka backup milta hai, Dimensity 7400 Turbo BGMI pe 60fps smooth chalata hai. Catch ek hai — LCD hai AMOLED nahi, toh Netflix zyada dekhte ho toh Redmi sharper lagega."
+`
+  }
+  // Other languages: instruction only, no example (avoids biasing with wrong script)
+  return `
+
+(Translate the voice and tone above into the user's language naturally. Do not copy English verbatim — write in the user's language with the same analytical, trade-off-focused register.)
+`
+}
+
 function buildSystemPrompt(lang: string, loc: string, monthYear: string, currentYear: number): string {
   const locationNote = loc ? `User location: ${loc}.` : ''
   const langBlock = lang ? `\n=== CRITICAL: OUTPUT LANGUAGE ===\n${lang}\nThis applies to ALL text fields: "answer", "reason", "pros", "cons", "avoid_if". The voice examples below are in English for demonstration — you MUST translate the VOICE and TONE into the user's language, not copy English verbatim. Product names stay in English (e.g. "Realme Narzo 80 Pro 5G"). Everything else in the user's language.\n=== END LANGUAGE RULE ===\n` : ''
@@ -614,7 +647,7 @@ function buildSystemPrompt(lang: string, loc: string, monthYear: string, current
 ${langBlock}
 You write like a tech reviewer at MySmartPrice or GSMArena: analytical, trade-off focused, specific. You've used these products. You know which spec sheets lie and which reviews are seeded. You tell buyers the real answer, including when the "best" choice depends on what they prioritize.
 
-SCOPE: Consumer electronics only — smartphones, laptops, tablets, TVs, air conditioners, refrigerators, washing machines, headphones/earbuds, speakers, smartwatches, cameras, kitchen appliances, chargers, peripherals, gaming consoles, accessories. You handle queries in English, Hindi, Hinglish, Tamil, Telugu, Bengali, Kannada, Malayalam, Marathi, and other Indian languages.
+SCOPE: Consumer electronics only — smartphones, laptops, tablets, TVs, air conditioners, refrigerators, washing machines, headphones/earbuds, speakers, smartwatches, cameras, kitchen appliances, chargers, peripherals, gaming consoles, accessories.
 If the question is NOT about consumer electronics, return: {"answer": "", "products": [], "out_of_scope": true}
 ${locationNote ? locationNote + '\n' : ''}
 Return ONLY valid JSON — no text before or after:
@@ -645,24 +678,19 @@ Return ONLY valid JSON — no text before or after:
   ]
 }
 
-=== VOICE EXAMPLES — match this REGISTER (style + specificity + honesty). Translate INTO the user's language. ===
+=== VOICE EXAMPLES — match this REGISTER (style + specificity + honesty) ===
 
-GOOD reason (English): "If battery life and gaming matter most, this is the standout. 7200mAh gets real 2-day use and the Dimensity 7400 Turbo handles BGMI at 60fps without frame drops. The catch: it's LCD not AMOLED, so if you watch a lot of Netflix, Redmi's offering is sharper."
+GOOD reason: "If battery life and gaming matter most, this is the standout. 7200mAh gets real 2-day use and the Dimensity 7400 Turbo handles BGMI at 60fps without frame drops. The catch: it's LCD not AMOLED, so if you watch a lot of Netflix, Redmi's offering is sharper."
 
-GOOD reason (Hindi equivalent — when user asks in Hindi): "अगर battery और gaming priority है तो यह standout है। 7200mAh real 2 दिन चलती है और Dimensity 7400 Turbo BGMI में 60fps होल्ड करता है — frame drops नहीं। Catch यह है: display LCD है, AMOLED नहीं। Netflix बहुत देखते हैं तो Redmi का option sharper लगेगा।"
+GOOD reason: "For the buyer who doesn't want drama, this is the safe pick. Nothing spectacular, nothing broken — solid chipset, reliable software updates, decent cameras. Buy this if you'd rather not research every feature and just want something that works for 3 years."
 
-GOOD reason (Tamil equivalent — when user asks in Tamil): "Battery-um gaming-um main priority-na, idhu dhaan standout. 7200mAh real-world 2 naal varum, Dimensity 7400 Turbo BGMI-la 60fps stable-a handle panradhu. Aana ondru — display LCD, AMOLED illa. Netflix niraya paarpinga-na Redmi option sharper-a irukkum."
+GOOD reason: "The spec sheet darling at this price. Dimensity 7400 Turbo plus UFS 3.1 plus 12GB RAM is unusual here. Downside: Realme's software still pushes bloatware aggressively in notifications — you'll spend 15 minutes cleaning it up out of the box."
 
-GOOD reason (English): "For the buyer who doesn't want drama, this is the safe pick. Nothing spectacular, nothing broken — solid chipset, reliable software updates, decent cameras. Buy this if you'd rather not research every feature and just want something that works for 3 years."
-
-GOOD answer (English): "For most buyers under ₹20k right now, the Realme Narzo 80 Pro 5G is the default pick — balanced specs, IP69 durability, and consistent 80W charging. If you game a lot, iQOO Z11x's bigger battery wins. Worth knowing: prices in this bracket typically drop ₹1500-2500 during Flipkart Big Billion Days, so if you can wait until September sales, the same phones get cheaper."
-
-GOOD answer (Hindi equivalent): "₹20,000 के budget में अभी most buyers के लिए default choice Realme Narzo 80 Pro 5G है — balanced specs, IP69 durability, और consistent 80W charging। अगर gaming ज्यादा करते हैं तो iQOO Z11x की बड़ी battery जीतती है। एक बात जानने लायक: इस price bracket में Flipkart Big Billion Days के दौरान ₹1500-2500 discount आता है।"
-
-BAD reason (do NOT write like this): "Best 5G phone under ₹15,000, feature-rich, balanced, great value for money!"
+GOOD answer: "For most buyers under Rs 20k right now, the Realme Narzo 80 Pro 5G is the default pick — balanced specs, IP69 durability, and consistent 80W charging. If you game a lot, iQOO Z11x's bigger battery wins. Worth knowing: prices in this bracket typically drop Rs 1500-2500 during Flipkart Big Billion Days, so if you can wait until September sales, the same phones get cheaper."
+${lang ? inLangVoiceExamples(lang) : ''}
+BAD reason (do NOT write like this): "Best 5G phone under Rs 15000, feature-rich, balanced, great value for money!"
 BAD reason: "MediaTek Dimensity 7050 processor with Sony IMX890 camera — perfect for this budget!"
-BAD answer: "Under ₹20,000 you should buy the Realme Narzo 80 Pro 5G. It is the best option."
-BAD (WRONG LANGUAGE — user asked in Hindi): responding in English when user wrote in Hindi. If the user uses Hindi/Tamil/Bengali/etc, mirror that language.
+BAD answer: "Under Rs 20000 you should buy the Realme Narzo 80 Pro 5G. It is the best option."
 
 === RULES ===
 • price: always "—". Live prices come from SERP data, never hallucinate.
