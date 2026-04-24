@@ -78,7 +78,10 @@ export type SearchResult = {
 
 const ALGORITHM_VERSION = 'PRv5.0-multiprovider'
 const cache = new Map<string, { result: SearchResult; ts: number }>()
-const CACHE_TTL = 20 * 60 * 1000
+// 7 DAYS — ratings/reviews/product lineups change slowly.
+// Individual SERP prices are still refreshed more frequently (see unstable_cache below).
+// If you need to force-clear: bump ALGORITHM_VERSION.
+const CACHE_TTL = 7 * 24 * 60 * 60 * 1000  // 7 days in ms
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SCOPE GATE — Electronics only
@@ -821,7 +824,8 @@ async function callSarvamChat(
 // Supports all 22 Indian languages. Returns { translated, detected_lang }.
 // Used to normalize non-English queries before hitting SERP + LLM chain.
 // ─────────────────────────────────────────────────────────────────────────────
-async function sarvamTranslateToEnglish(
+// Inner: uncached Sarvam translate call (renamed) — performs the actual API call.
+async function sarvamTranslateRaw(
   text: string, apiKey: string
 ): Promise<{ translated: string; detected_lang: string }> {
   if (!apiKey || !text.trim()) return { translated: text, detected_lang: 'en-IN' }
@@ -854,6 +858,24 @@ async function sarvamTranslateToEnglish(
     console.error('[Sarvam:Translate] error:', String(e))
     return { translated: text, detected_lang: 'en-IN' }
   }
+}
+
+// Public wrapper — caches translations for 30 DAYS (translations are deterministic).
+// Keyed by hash of input text; same input → same output indefinitely.
+async function sarvamTranslateToEnglish(
+  text: string, apiKey: string
+): Promise<{ translated: string; detected_lang: string }> {
+  if (!apiKey || !text.trim()) return { translated: text, detected_lang: 'en-IN' }
+  const key = `sarvam-translate:${cheapHash(text)}`
+  const cached = unstable_cache(
+    async () => {
+      console.log(`[Cache] Translate MISS — "${text.slice(0,40)}"`)
+      return await sarvamTranslateRaw(text, apiKey)
+    },
+    [key],
+    { revalidate: 2592000, tags: ['translate'] }  // 30 days = 2592000s
+  )
+  return await cached()
 }
 
 // Map Sarvam BCP-47 language codes to response-style instructions for the LLM.
@@ -1149,6 +1171,13 @@ async function callPerplexity(
   return { answer: '', products: [] }
 }
 
+// Tiny stable hash for cache keys — same string → same hash. Not cryptographic.
+function cheapHash(str: string): string {
+  let h = 5381
+  for (let i = 0; i < str.length; i++) h = (((h << 5) + h) + str.charCodeAt(i)) & 0xFFFFFFFF
+  return h.toString(36)
+}
+
 async function callProvider(
   provider: 'openai'|'claude'|'perplexity'|'sarvam',
   model: string,
@@ -1161,6 +1190,44 @@ async function callProvider(
   if (provider==='perplexity'  && keys.perplexity)  return callPerplexity(systemPrompt, userMsg, keys.perplexity)
   if (provider==='sarvam'      && keys.sarvam)      return callSarvamChat(systemPrompt, userMsg, keys.sarvam)
   return { answer:'', products:[] }
+}
+
+// LLM response cache wrapper around callProvider.
+// 7 DAYS TTL — same query + same prompt = same recommendations for days.
+// Key: provider:model:hash(systemPrompt):hash(userMsg). Prompt changes auto-bust cache.
+// We only cache SUCCESSFUL responses (products.length > 0 OR out-of-scope sentinel).
+// Empty responses are re-tried next time so fallback chain can progress.
+async function callProviderCached(
+  provider: 'openai'|'claude'|'perplexity'|'sarvam',
+  model: string,
+  systemPrompt: string,
+  userMsg: string,
+  keys: ProviderKeys
+): Promise<{ answer: string; products: unknown[] }> {
+  const keyParts = [provider, model, cheapHash(systemPrompt), cheapHash(userMsg)]
+  const cacheKey = keyParts.join(':')
+  const cached = unstable_cache(
+    async (): Promise<{ answer: string; products: unknown[] }> => {
+      console.log(`[Cache] LLM MISS — calling ${provider}:${model} [key=${cacheKey.slice(0, 50)}]`)
+      const result = await callProvider(provider, model, systemPrompt, userMsg, keys)
+      // Transient failure: don't cache empty non-scope responses. Throw so cache bypasses.
+      if (result.products.length === 0 && result.answer !== '__OUT_OF_SCOPE__') {
+        throw new Error('__TRANSIENT_EMPTY__')
+      }
+      return result
+    },
+    [cacheKey],
+    { revalidate: 604800, tags: ['llm', `llm-${provider}`] }  // 7 days
+  )
+  try {
+    return await cached()
+  } catch (e) {
+    if (String(e).includes('__TRANSIENT_EMPTY__')) {
+      console.log(`[Cache] LLM skip-cache (empty response) ${provider}:${model}`)
+      return { answer: '', products: [] }
+    }
+    throw e
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1247,13 +1314,18 @@ export async function runSearch(
   // 1 hour TTL for broad SERP — prices change but not minute-to-minute.
   // Key includes normalized query. Unit: (seconds).
   // This persists across serverless cold starts — unlike the in-memory `cache` above.
+  // SERP broad cache: 24 hours.
+  // Rationale: the PRODUCT LINEUP for "best phone under 20k" changes on the timescale of
+  // weeks (new launches), not hours. Prices within the cached result may lag up to 24h
+  // but that's acceptable — final click-through price is live from Amazon/Flipkart anyway.
+  // For forced refresh (e.g. during Flipkart sales), call revalidateTag('serp') from an admin route.
   const cachedSerpCall = unstable_cache(
     async (q: string): Promise<SerpSearchResult> => {
       console.log(`[Cache] SERP MISS — fetching fresh for "${q.slice(0,50)}"`)
       return await searchGoogleShopping(q)
     },
     ['serp-broad'],
-    { revalidate: 3600, tags: ['serp'] }
+    { revalidate: 86400, tags: ['serp', 'serp-broad'] }  // 24h = 86400s
   )
   const serpPromise = cachedSerpCall(englishQuery).catch((e): SerpSearchResult => {
     console.error('[SERP]:', String(e))
@@ -1286,7 +1358,7 @@ export async function runSearch(
 
   console.log(`[Search] Trying PRIMARY ${plan.primary.provider}:${plan.primary.model}`)
   const llmStart = Date.now()
-  const r = await callProvider(plan.primary.provider, plan.primary.model, systemPrompt, userMsg, keys)
+  const r = await callProviderCached(plan.primary.provider, plan.primary.model, systemPrompt, userMsg, keys)
   track('llm_primary', llmStart)
   console.log(`[Search] PRIMARY ${plan.primary.provider} returned: answer=${r.answer.length}chars products=${r.products.length} (${timings.llm_primary}ms)`)
   // Primary acceptance: must have products (answer alone with empty products is useless for cards)
@@ -1306,7 +1378,7 @@ export async function runSearch(
       if (rawProducts.length > 0) break   // Got what we need from primary/earlier fallback
       console.log(`[Search] Fallback → ${fb.provider}:${fb.model}`)
       const fbStart = Date.now()
-      const r2 = await callProvider(fb.provider, fb.model, systemPrompt, userMsg, keys)
+      const r2 = await callProviderCached(fb.provider, fb.model, systemPrompt, userMsg, keys)
       track(`llm_fallback_${fbIndex++}`, fbStart)
       console.log(`[Search] FALLBACK ${fb.provider} returned: answer=${r2.answer.length}chars products=${r2.products.length} (${Date.now()-fbStart}ms)`)
       if (r2.answer === '__OUT_OF_SCOPE__') {
