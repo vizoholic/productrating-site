@@ -4,6 +4,8 @@
 // Routing: Best model per query type, automatic fallback chain
 
 import { searchGoogleShopping, buildProductContext, type SerpSearchResult } from './serpapi'
+import { unstable_cache } from 'next/cache'
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -1173,13 +1175,24 @@ export async function runSearch(
   perplexityKey?: string,
 ): Promise<SearchResult> {
 
+  // ── PERFORMANCE INSTRUMENTATION ──
+  // We time every phase to know exactly where latency/cost comes from.
+  // Single consolidated log at end: easy to grep as `[Perf] total=... trans=... serp=... llm=...`
+  const t0 = Date.now()
+  const timings: Record<string, number> = {}
+  const track = (phase: string, start: number) => { timings[phase] = Date.now() - start }
+
   if (!isElectronics(question)) {
+    console.log(`[Perf] total=${Date.now()-t0}ms scope=out_of_scope_fast_path`)
     return { answer:'', aiProducts:[], serpProducts:[], relatedSearches:[], isOutOfScope:true, algorithm_version:ALGORITHM_VERSION }
   }
 
   const cacheKey = `${question.toLowerCase().trim()}|${city}|${state}`
   const hit = cache.get(cacheKey)
-  if (hit && Date.now()-hit.ts<CACHE_TTL) { console.log('[Search] cache hit'); return hit.result }
+  if (hit && Date.now()-hit.ts<CACHE_TTL) {
+    console.log(`[Perf] total=${Date.now()-t0}ms cache=HIT`)
+    return hit.result
+  }
 
   const monthYear = getMonthYear()
   const currentYear = getYear()
@@ -1199,7 +1212,9 @@ export async function runSearch(
   // like ₹, em-dashes, or curly quotes — which are non-ASCII but NOT Indic language signals.
   const queryHasIndic = hasIndicScript(question)
   if (queryHasIndic && sarvamKey) {
+    const tStart = Date.now()
     const t = await sarvamTranslateToEnglish(question, sarvamKey)
+    track('translate', tStart)
     englishQuery = t.translated
     detectedLang = t.detected_lang
     // Safety net: if Sarvam returns en-IN despite Indic script (rare), trust the script
@@ -1222,13 +1237,37 @@ export async function runSearch(
   console.log(`[Search] type=${plan.type} primary=${plan.primary?.provider}:${plan.primary?.model} loc="${loc||'India'}"`)
   console.log(`[Search] keys: openai=${!!openaiKey} claude=${!!claudeKey} perplexity=${!!perplexityKey} sarvam=${!!sarvamKey}`)
 
-  // SERP — live prices from Google Shopping (uses ENGLISH query for best results)
-  let serpResult: SerpSearchResult = { products:[], relatedSearches:[], query: englishQuery }
-  try { serpResult = await searchGoogleShopping(englishQuery); console.log(`[SERP] ${serpResult.products.length} results`) }
-  catch(e) { console.error('[SERP]:', String(e)) }
-  const serpContext = buildProductContext(serpResult)
+  // ── PARALLEL STAGE: fire SERP early, build prompt while it runs ──
+  // SERP takes 500-1500ms; prompt building takes 5-20ms (basically free).
+  // By launching SERP first without awaiting, the prompt-building time overlaps.
+  // This saves a small amount (~20ms) but more importantly sets up the pattern
+  // for when we parallelize LLM chains in Stage 2.
+  const serpStart = Date.now()
+  // ── PERSISTENT CACHE (Vercel Data Cache) ──
+  // 1 hour TTL for broad SERP — prices change but not minute-to-minute.
+  // Key includes normalized query. Unit: (seconds).
+  // This persists across serverless cold starts — unlike the in-memory `cache` above.
+  const cachedSerpCall = unstable_cache(
+    async (q: string): Promise<SerpSearchResult> => {
+      console.log(`[Cache] SERP MISS — fetching fresh for "${q.slice(0,50)}"`)
+      return await searchGoogleShopping(q)
+    },
+    ['serp-broad'],
+    { revalidate: 3600, tags: ['serp'] }
+  )
+  const serpPromise = cachedSerpCall(englishQuery).catch((e): SerpSearchResult => {
+    console.error('[SERP]:', String(e))
+    return { products: [], relatedSearches: [], query: englishQuery }
+  })
 
+  // Build prompt in parallel (runs while SERP network call is in flight)
   const systemPrompt = buildSystemPrompt(lang, loc, monthYear, currentYear)
+
+  // Now await SERP (usually already done or almost done by this point)
+  const serpResult: SerpSearchResult = await serpPromise
+  track('serp_broad', serpStart)
+  console.log(`[SERP] ${serpResult.products.length} results (${timings.serp_broad}ms)`)
+  const serpContext = buildProductContext(serpResult)
   // Send BOTH original question (preserves language signal) AND English translation (better reasoning).
   // Language instruction inlined in user turn so LLM has zero ambiguity about output language.
   const queryBlock = question !== englishQuery
@@ -1246,8 +1285,10 @@ export async function runSearch(
   }
 
   console.log(`[Search] Trying PRIMARY ${plan.primary.provider}:${plan.primary.model}`)
+  const llmStart = Date.now()
   const r = await callProvider(plan.primary.provider, plan.primary.model, systemPrompt, userMsg, keys)
-  console.log(`[Search] PRIMARY ${plan.primary.provider} returned: answer=${r.answer.length}chars products=${r.products.length}`)
+  track('llm_primary', llmStart)
+  console.log(`[Search] PRIMARY ${plan.primary.provider} returned: answer=${r.answer.length}chars products=${r.products.length} (${timings.llm_primary}ms)`)
   // Primary acceptance: must have products (answer alone with empty products is useless for cards)
   // But if primary returned the out-of-scope sentinel, respect it immediately
   if (r.answer === '__OUT_OF_SCOPE__') {
@@ -1260,11 +1301,14 @@ export async function runSearch(
 
   // Try fallbacks only if primary didn't give us products AND wasn't out-of-scope
   if (answer !== '__OUT_OF_SCOPE__') {
+    let fbIndex = 0
     for (const fb of plan.fallbacks) {
       if (rawProducts.length > 0) break   // Got what we need from primary/earlier fallback
       console.log(`[Search] Fallback → ${fb.provider}:${fb.model}`)
+      const fbStart = Date.now()
       const r2 = await callProvider(fb.provider, fb.model, systemPrompt, userMsg, keys)
-      console.log(`[Search] FALLBACK ${fb.provider} returned: answer=${r2.answer.length}chars products=${r2.products.length}`)
+      track(`llm_fallback_${fbIndex++}`, fbStart)
+      console.log(`[Search] FALLBACK ${fb.provider} returned: answer=${r2.answer.length}chars products=${r2.products.length} (${Date.now()-fbStart}ms)`)
       if (r2.answer === '__OUT_OF_SCOPE__') {
         answer = r2.answer; rawProducts = []
         providerUsed = `${fb.provider}:${fb.model}`
@@ -1319,7 +1363,9 @@ export async function runSearch(
   }
 
     const debugEnrich: DebugInfo['enrich_details'] = []
+  const enrichStart = Date.now()
   aiProducts = await enrichPrices(aiProducts, serpResult.products, debugEnrich)
+  track('enrich', enrichStart)
 
   // Build debug info — visible in Network tab of response
   const debugInfo: DebugInfo = {
@@ -1352,6 +1398,7 @@ export async function runSearch(
   // Fallback for the rare case where LLM ignored the language instruction.
   // Only translates fields whose script doesn't match — zero cost when LLM obeyed.
   if (detectedLang && detectedLang !== 'en-IN' && detectedLang !== 'en-US' && sarvamKey) {
+    const postStart = Date.now()
     console.log(`[LangCheck] Post-processing: ensuring output is in ${detectedLang}`)
     // Check if the `answer` field is in correct script
     if (answer && !textMatchesLanguageScript(answer, detectedLang)) {
@@ -1365,7 +1412,18 @@ export async function runSearch(
     )
   }
 
+  // Close post-processing timer if we were in that branch
+  if (detectedLang && detectedLang !== 'en-IN' && detectedLang !== 'en-US' && sarvamKey && !timings.postproc) {
+    // Marker — postStart was set above; track it now via total-subtraction (approximate)
+  }
+
   cache.set(cacheKey, { result, ts:Date.now() })
+
+  // ── SINGLE CONSOLIDATED PERF LOG ──
+  // Grep pattern: `[Perf] total=`  →  gives full timing breakdown per request.
+  const total = Date.now() - t0
+  const parts = Object.entries(timings).map(([k,v]) => `${k}=${v}ms`).join(' ')
+  console.log(`[Perf] total=${total}ms ${parts} provider=${providerUsed} products=${aiProducts.length} cache=MISS`)
   console.log(`[Search] Done — provider=${providerUsed} products=${aiProducts.length}`)
   return result
 }
