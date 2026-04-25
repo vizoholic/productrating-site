@@ -43,6 +43,10 @@ export type AiProduct = {
   // Price sanity check — AI provides expected range; SERP matches outside this range are filtered
   price_min_expected?: number   // e.g. 15000 for earbuds under 20k
   price_max_expected?: number   // e.g. 25000 (20% buffer above user budget)
+  // Variant guidance (added to help users pick the right config without cluttering the title)
+  recommended_variant?: string         // e.g. "8GB/128GB" or "1.5 Ton 5 Star"
+  recommended_variant_reason?: string  // e.g. "8GB is the sweet spot; 6GB feels cramped after a year"
+  available_variants?: string[]        // detected from SERP listings, e.g. ["6GB/128GB", "8GB/128GB", "8GB/256GB"]
 }
 
 export type DebugInfo = {
@@ -226,6 +230,8 @@ function sanitise(p: Record<string,unknown>, i: number): AiProduct {
     score: Number(p.score||0),
     successor_of: p.successor_of ? String(p.successor_of) : undefined,
     launch_date_india: p.launch_date_india ? String(p.launch_date_india) : undefined,
+    recommended_variant: p.recommended_variant ? String(p.recommended_variant) : undefined,
+    recommended_variant_reason: p.recommended_variant_reason ? String(p.recommended_variant_reason) : undefined,
     newer_version: p.newer_version && typeof p.newer_version === 'object'
       ? {
           name: String((p.newer_version as Record<string,unknown>).name || ''),
@@ -397,6 +403,41 @@ function computePrScore(
 // Rule: drop ANY parenthetical that looks like RAM/storage/colour/variant.
 // Conservative: only strips parens that contain GB/TB/MB/RAM/colour names — never strips
 // parens that contain meaningful product identifiers (we err on KEEPING when uncertain).
+// Extract variant config (RAM/storage/capacity) from a product listing title.
+// Returns normalized strings like "8GB/128GB", "256GB", "1.5 Ton 5 Star", or "" if none found.
+// Used to surface ACTUAL available variants from SERP, not just AI's recommendation.
+function extractVariant(title: string): string {
+  if (!title) return ''
+  const t = title.replace(/[+,]/g, ' ').replace(/\s+/g, ' ')
+  // Phone/laptop pattern: "8GB/128GB", "8 GB 128 GB", "8GB RAM 128GB Storage"
+  const ramStorage = t.match(/(\d+)\s*GB(?:\s*RAM)?\s*[\/\-]?\s*(\d+)\s*(GB|TB)(?:\s*Storage)?/i)
+  if (ramStorage) {
+    return `${ramStorage[1]}GB/${ramStorage[2]}${ramStorage[3].toUpperCase()}`
+  }
+  // Single capacity (storage drives, SSDs): "1TB", "512GB"
+  // GB needs to be ≥ 32 to avoid matching "8GB" RAM specs that lack a paired storage.
+  // TB always qualifies — 1TB+ is always real storage.
+  const single = t.match(/\b(\d+)\s*(GB|TB)\b/i)
+  if (single) {
+    const num = parseInt(single[1])
+    const unit = single[2].toUpperCase()
+    if (unit === 'TB' || num >= 32) {
+      return `${num}${unit}`
+    }
+  }
+  // AC pattern: "1.5 Ton 5 Star"
+  const ac = t.match(/(\d+(?:\.\d+)?)\s*Ton\s+(\d+)\s*Star/i)
+  if (ac) {
+    return `${ac[1]} Ton ${ac[2]} Star`
+  }
+  // TV pattern: "55 inch", "55\""
+  const tv = t.match(/(\d{2,3})\s*(?:inch|"|\u201D)/i)
+  if (tv) {
+    return `${tv[1]} inch`
+  }
+  return ''
+}
+
 function stripVariantSuffix(name: string): string {
   if (!name) return name
   // Match parens content; drop if it looks like a variant spec.
@@ -590,12 +631,24 @@ async function enrichPrices(
       .filter(sp => sp.delivery && normaliseMarketplace(sp.source) === (best?.platform||'Amazon'))[0]?.delivery
 
     const hasRealPrice = !!(best && best.price && best.price_numeric > 0)
+
+    // Extract distinct variants seen across all matched listings.
+    // Frontend can display this as "Available: 6GB/128GB · 8GB/128GB · 8GB/256GB"
+    // so users see real config options without us hardcoding them.
+    const variantSet = new Set<string>()
+    for (const sp of matched) {
+      const v = extractVariant(sp.title || '')
+      if (v) variantSet.add(v)
+    }
+    const available_variants = Array.from(variantSet).slice(0, 6)  // cap display
+
     const result: AiProduct = {
       ...ai,
       // Display name without RAM/storage suffix — cleaner cards, broader meaning
       // ("iQOO Z10x 5G" instead of "iQOO Z10x 5G (8GB/128GB)").
       // The original variant info is preserved in pros/cons/reason if AI mentioned it.
       name: stripVariantSuffix(ai.name),
+      available_variants: available_variants.length > 0 ? available_variants : undefined,
       platform_prices,
       best_price: hasRealPrice ? best!.price : '',
       best_price_platform: best?.platform || ai.seller || 'Amazon',
@@ -719,11 +772,13 @@ Return ONLY valid JSON — no text before or after:
       "avoid_if": "<specific buyer persona who should skip, e.g. 'You watch movies daily — LCD looks washed out vs AMOLED rivals'>",
       "successor_of": null,
       "launch_date_india": "<ACCURATE month+year of India launch e.g. 'January 2025'>",
+      "recommended_variant": "<the RAM/storage/capacity config you'd actually buy at this price. Examples: '8GB/128GB' for phones, '1.5 Ton 5 Star' for ACs, '512GB' for SSDs, 'Black' for unimportant variants. Use empty string if there's no meaningful variant choice.>",
+      "recommended_variant_reason": "<1 short sentence WHY this variant. Examples: '8GB is the sweet spot; 6GB feels cramped after a year' / '128GB is enough for most; 256GB only if you record lots of video' / '5-star inverter pays back in electricity bills within 18 months at avg use'. Empty if recommended_variant is empty.>",
       "newer_version": { "name": "<newer successor if exists>", "reason": "<what improved>", "price_approx": "—" },
       "price_min_expected": <integer INR — lowest realistic price for THIS specific product in India>,
       "price_max_expected": <integer INR — highest realistic price (MRP) for THIS product>
     },
-    { "name":"...", "price":"—", "seller":"...", "rating":0.0, "platform_rating":0.0, "reviews":"...", "badge":"Best Value", "score":0, "reason":"...", "pros":["...","..."], "cons":["..."], "avoid_if":"...", "successor_of":null, "launch_date_india":"...", "newer_version":null, "price_min_expected":0, "price_max_expected":0 },
+    { "name":"...", "price":"—", "seller":"...", "rating":0.0, "platform_rating":0.0, "reviews":"...", "badge":"Best Value", "score":0, "reason":"...", "pros":["...","..."], "cons":["..."], "avoid_if":"...", "successor_of":null, "launch_date_india":"...", "newer_version":null, "recommended_variant":"...", "recommended_variant_reason":"...", "price_min_expected":0, "price_max_expected":0 },
     { "name":"...", "price":"—", "seller":"...", "rating":0.0, "platform_rating":0.0, "reviews":"...", "badge":"Budget Pick", "score":0, "reason":"...", "pros":["...","..."], "cons":["..."], "avoid_if":"...", "successor_of":null, "launch_date_india":"...", "newer_version":null }
   ]
 }
@@ -1157,6 +1212,8 @@ async function callPerplexity(
                         pros: { type: 'array', items: { type: 'string' } },
                         cons: { type: 'array', items: { type: 'string' } },
                         launch_date_india: { type: 'string' },
+                        recommended_variant: { type: 'string' },
+                        recommended_variant_reason: { type: 'string' },
                         price_min_expected: { type: 'number' },
                         price_max_expected: { type: 'number' },
                       },
