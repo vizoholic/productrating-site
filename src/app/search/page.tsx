@@ -54,16 +54,19 @@ function getDirectUrl(seller:string,name:string):string{
 
 // Custom thin-line arc — not generic stars
 function RatingArc({score,size=60}:{score:number;size?:number}){
-  const r=(size/2)-5,circ=2*Math.PI*r,dash=circ*(score/5)
+  const r=(size/2)-4,circ=2*Math.PI*r,dash=circ*(score/5)
+  // Stroke width scales with size — thin for small, bolder for headline rings
+  const stroke = size >= 72 ? 4 : size >= 60 ? 3 : 2.5
+  // Tint score colour by quality: 4.5+ accent, 4.0-4.5 ink, <4.0 muted
+  const scoreColor = score >= 4.5 ? 'var(--accent)' : score >= 4.0 ? 'var(--ink)' : 'var(--ink-3)'
   return(
     <div style={{position:'relative',width:size,height:size,flexShrink:0}}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{transform:'rotate(-90deg)'}}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--bg-3)" strokeWidth="2.5"/>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--bg-3)" strokeWidth={stroke}/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--accent)" strokeWidth={stroke} strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"/>
       </svg>
-      <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column'}}>
-        <span style={{fontFamily:'var(--font-sans)',fontSize:size/3.5,fontWeight:800,color:'var(--ink)',lineHeight:1,letterSpacing:'-1px'}}>{score.toFixed(1)}</span>
-        <span style={{fontSize:8,color:'var(--ink-4)',fontFamily:'var(--font-mono)'}}>/ 5</span>
+      <div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <span style={{fontFamily:'var(--font-sans)',fontSize:size/2.8,fontWeight:800,color:scoreColor,lineHeight:1,letterSpacing:'-1.5px'}}>{score.toFixed(1)}</span>
       </div>
     </div>
   )
@@ -116,17 +119,24 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
           
         </div>
 
-        {/* Score block — clean, single rating display */}
-        <div style={{background:'#F4F3FF',borderRadius:14,padding:'20px 22px',marginBottom:16,border:'1px solid rgba(91,79,207,0.12)',display:'flex',alignItems:'center',gap:20}}>
-          <RatingArc score={aiRating} size={64}/>
-          <div style={{flex:1}}>
-            <div style={{fontSize:10,color:'var(--ink-3)',fontFamily:'var(--font-mono)',letterSpacing:'1px',textTransform:'uppercase',fontWeight:600,marginBottom:6}}>PR Rating</div>
-            <div style={{display:'flex',alignItems:'baseline',gap:6,marginBottom:8}}>
-              <span style={{fontSize:26,fontWeight:800,color:'var(--ink)',letterSpacing:'-1px',lineHeight:1}}>{aiRating.toFixed(1)}</span>
-              <span style={{fontSize:14,color:'var(--ink-3)',fontWeight:500}}>/ 5</span>
+        {/* Score block — arc IS the rating; right side carries trust signals */}
+        <div style={{background:'#F4F3FF',borderRadius:14,padding:'18px 22px',marginBottom:16,border:'1px solid rgba(91,79,207,0.12)',display:'flex',alignItems:'center',gap:18}}>
+          <RatingArc score={aiRating} size={72}/>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+              <span style={{fontSize:11,color:'var(--ink-2,#3D3A36)',fontFamily:'var(--font-mono)',letterSpacing:'1.2px',textTransform:'uppercase',fontWeight:700}}>PR Rating</span>
+              {p.reviews_verified&&(
+                <span title="Verified from live marketplace data" style={{display:'inline-flex',alignItems:'center',gap:3,fontSize:9,color:'#1a7d3f',background:'rgba(26,125,63,0.1)',padding:'2px 6px',borderRadius:3,fontFamily:'var(--font-mono)',letterSpacing:'0.4px',textTransform:'uppercase',fontWeight:600}}>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                  Verified
+                </span>
+              )}
             </div>
-            <div style={{fontSize:11,color:'var(--ink-3)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>
-              {(p.reviews||'—').replace(/\s*\([^)]*\)/g,'')} reviews
+            <div style={{fontSize:13.5,color:'var(--ink-2,#3D3A36)',lineHeight:1.5,marginBottom:3}}>
+              Based on <strong style={{color:'var(--ink)',fontWeight:700}}>{(p.reviews||'—').replace(/\s*\([^)]*\)/g,'')}</strong> reviews
+            </div>
+            <div style={{fontSize:11,color:'var(--ink-4,#7d7a76)',fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>
+              Cross-platform weighted score
             </div>
           </div>
         </div>
