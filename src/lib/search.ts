@@ -387,6 +387,34 @@ function computePrScore(
   return { platform_rating: platformRating, pr_score: prScore, confidence }
 }
 
+// Strip variant/config suffixes from product names for cleaner display + broader search.
+// Examples:
+//   "iQOO Z10x 5G (8GB/128GB)"          → "iQOO Z10x 5G"
+//   "Realme P4x 5G (8GB+128GB)"          → "Realme P4x 5G"
+//   "Samsung Galaxy M35 5G (6GB, 128GB)" → "Samsung Galaxy M35 5G"
+//   "Sony WF-1000XM5 (Black)"            → "Sony WF-1000XM5"
+//   "LG 1.5 Ton 5 Star Inverter Split AC" → unchanged (no parens)
+// Rule: drop ANY parenthetical that looks like RAM/storage/colour/variant.
+// Conservative: only strips parens that contain GB/TB/MB/RAM/colour names — never strips
+// parens that contain meaningful product identifiers (we err on KEEPING when uncertain).
+function stripVariantSuffix(name: string): string {
+  if (!name) return name
+  // Match parens content; drop if it looks like a variant spec.
+  return name
+    .replace(/\s*\(([^)]+)\)/g, (_match, inner: string) => {
+      const lower = inner.toLowerCase()
+      // Variant signals: storage/RAM, colour names, "5G/4G" alone
+      const looksLikeVariant =
+        /\d+\s*(gb|tb|mb)\b/i.test(inner) ||  // "128GB", "8 GB", "6GB"
+        /\bram\b/i.test(inner) ||                // "8GB RAM"
+        /\b(black|white|blue|red|green|silver|gold|grey|gray|titanium|midnight|starlight|space|graphite|navy|sand|cream|purple|pink|orange|yellow|charcoal|onyx|pearl|sky|mint|coral|bronze|copper)\b/i.test(lower) ||
+        /^[\d\s+,/-]+(gb|tb|mb)?$/i.test(inner.trim())  // pure numeric variant like "8+128"
+      return looksLikeVariant ? '' : ` (${inner})`
+    })
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 async function enrichPrices(
   aiProducts: AiProduct[],
   serpProducts: SerpSearchResult['products'],
@@ -406,10 +434,15 @@ async function enrichPrices(
         .filter(w => w.length >= 2 && !/^(the|with|and|for|new|best|price|in|india|online|buy|store|from|at|by)$/.test(w))
     }
 
-    // Re-tokenize AI name WITH parens content
-    const aiName = ai.name.toLowerCase()
-    const aiTokens = tokenize(ai.name + ' ' + (ai.name.match(/\(([^)]*)\)/g)||[]).join(' '))
-    // Key identifiers: model numbers (contain digits) are MUST-MATCH
+    // Tokenize using BASE name (no RAM/storage parens) — we don't gate matches on RAM variant.
+    // RAM/storage are DISPLAY hints from AI, not search constraints. Users want the product;
+    // they'll see the matched variant's price and decide.
+    const baseName = stripVariantSuffix(ai.name)
+    const aiName = baseName.toLowerCase()
+    const aiTokens = tokenize(baseName)
+    // Key identifiers: model numbers (e.g. "z10x", "15", "edge60") — REQUIRED
+    // Pure RAM/storage tokens (e.g. "8gb", "128gb") would have been STRIPPED by stripVariantSuffix,
+    // so anything with a digit here is a real model identifier.
     const mustMatch = aiTokens.filter(t => /\d/.test(t) && t.length >= 2)
     // Brand keywords: first 1-2 words typically
     const brandTokens = aiTokens.filter(t => !/\d/.test(t)).slice(0, 3)
@@ -454,9 +487,12 @@ async function enrichPrices(
     let targetedMatchCount = 0
     if (distinctPlatforms < 3) {
       usedTargetedSerp = true
-      console.log(`[enrichPrices] "${ai.name.slice(0,40)}" broad match=${matched.length} platforms=${distinctPlatforms}, firing targeted SERP...`)
+      // Use BASE name (no RAM/storage suffix) so we capture all variants of the product
+      // and surface the cheapest legitimate config — not just the exact variant AI named.
+      const searchName = stripVariantSuffix(ai.name)
+      console.log(`[enrichPrices] "${ai.name.slice(0,40)}" broad match=${matched.length} platforms=${distinctPlatforms}, firing targeted SERP for "${searchName}"...`)
       try {
-        const targetedResult = await searchGoogleShopping(ai.name)
+        const targetedResult = await searchGoogleShopping(searchName)
         const targeted = targetedResult.products.filter(sp => {
           if (!sp.title || !sp.price || !isMarketplace(sp.source)) return false
           if (!passesPriceSanity(sp)) return false  // same price sanity check
@@ -492,7 +528,7 @@ async function enrichPrices(
       if (!existing || priceNum < existing.price_num) {
         // Use SERP link only if it's a real seller URL (not a google.com redirect)
         const serpLinkIsDirect = sp.link && !/^https?:\/\/(www\.)?google\./i.test(sp.link)
-        const finalUrl = (serpLinkIsDirect && isMarketplace(sp.source)) ? sp.link : buildSearchUrl(key, ai.name)
+        const finalUrl = (serpLinkIsDirect && isMarketplace(sp.source)) ? sp.link : buildSearchUrl(key, baseName)
         byPlatform.set(key, {
           price_str: sp.price,
           price_num: priceNum,
@@ -556,10 +592,14 @@ async function enrichPrices(
     const hasRealPrice = !!(best && best.price && best.price_numeric > 0)
     const result: AiProduct = {
       ...ai,
+      // Display name without RAM/storage suffix — cleaner cards, broader meaning
+      // ("iQOO Z10x 5G" instead of "iQOO Z10x 5G (8GB/128GB)").
+      // The original variant info is preserved in pros/cons/reason if AI mentioned it.
+      name: stripVariantSuffix(ai.name),
       platform_prices,
       best_price: hasRealPrice ? best!.price : '',
       best_price_platform: best?.platform || ai.seller || 'Amazon',
-      best_price_url: best?.url || buildSearchUrl('Amazon', ai.name),
+      best_price_url: best?.url || buildSearchUrl('Amazon', baseName),
       price: hasRealPrice ? best!.price : ai.price,
       seller: best?.platform || ai.seller || 'Amazon',
     }
@@ -665,7 +705,7 @@ Return ONLY valid JSON — no text before or after:
   "answer": "<3-5 sentences of genuinely useful framing. Open with the default recommendation for most buyers. Mention 1-2 real trade-offs a shopper would care about (not generic 'great value'). Optionally flag timing ('prices drop during Flipkart Big Billion Days') or a specific gotcha ('LCD not AMOLED — matters if you watch movies'). Write like you've held the product, not read the spec sheet.>",
   "products": [
     {
-      "name": "<full product name with RAM/storage variant>",
+      "name": "<product name WITHOUT RAM/storage variant. Example: 'iQOO Z10x 5G' not 'iQOO Z10x 5G (8GB/128GB)'. For appliances, omit capacity unless it is THE distinguishing feature. Mention RAM/storage/colour in pros or reason if relevant.>",
       "price": "—",
       "seller": "Amazon",
       "rating": <3.5-4.8 — honest estimate; overridden by live data>,
