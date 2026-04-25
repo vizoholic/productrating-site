@@ -14,6 +14,9 @@ type AiProduct = {
   pros:string[]; cons:string[]; avoid_if:string;
   score?:number;
   launch_date_india?:string;
+  recommended_variant?:string;
+  recommended_variant_reason?:string;
+  available_variants?:string[];
   newer_version?:{name:string;reason:string;price_approx:string}|null;
   image_url?:string; deal_tag?:string; delivery?:string; marketplace_rating?:number;
   platform_prices?:PlatformPrice[];
@@ -102,7 +105,10 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
 
           {/* Launch date badge */}
           {p.launch_date_india&&(
-            <span style={{display:'inline-block',fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',background:'var(--bg-2)',border:'1px solid var(--border)',borderRadius:4,padding:'2px 8px',marginBottom:10}}>🗓 India launch: {p.launch_date_india}</span>
+            <span style={{display:'inline-block',fontSize:10,color:'var(--ink-4)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',background:'var(--bg-2)',border:'1px solid var(--border)',borderRadius:4,padding:'2px 8px',marginBottom:10,marginRight:6}}>🗓 India launch: {p.launch_date_india}</span>
+          )}
+          {p.recommended_variant&&(
+            <span style={{display:'inline-block',fontSize:10,color:'var(--accent-2,#5d3fd3)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase',background:'rgba(93,63,211,0.08)',border:'1px solid rgba(93,63,211,0.25)',borderRadius:4,padding:'2px 8px',marginBottom:10}}>👉 Buy: {p.recommended_variant}</span>
           )}
 
         <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:20,flexWrap:'wrap'}}>
@@ -124,6 +130,20 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
             </div>
           </div>
         </div>
+
+        {/* Variant guidance — recommended config + available options */}
+        {p.recommended_variant_reason&&(
+          <div style={{marginBottom:12,padding:'10px 14px',background:'rgba(93,63,211,0.04)',borderRadius:'var(--radius)',borderLeft:'2px solid rgba(93,63,211,0.4)',fontSize:12.5,lineHeight:1.55,color:'var(--ink-2,#3D3A36)'}}>
+            <span style={{fontFamily:'var(--font-mono)',fontSize:10,color:'#5d3fd3',letterSpacing:'1px',textTransform:'uppercase',fontWeight:700,marginRight:8}}>Variant tip</span>
+            {p.recommended_variant_reason}
+          </div>
+        )}
+        {p.available_variants&&p.available_variants.length>1&&(
+          <div style={{fontSize:11,color:'var(--ink-4,#7d7a76)',marginBottom:12,fontFamily:'var(--font-mono)',letterSpacing:'0.3px'}}>
+            <span style={{textTransform:'uppercase',fontSize:10,marginRight:6}}>Available:</span>
+            {p.available_variants.join(' · ')}
+          </div>
+        )}
 
         {/* Why this result */}
         {p.reason&&(
