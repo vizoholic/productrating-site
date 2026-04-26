@@ -73,7 +73,14 @@ function RatingArc({score,size=60}:{score:number;size?:number}){
 }
 
 // Bespoke editor seal
-function EditorSeal({label}
+function EditorSeal({label}:{label:string}){
+  return(
+    <div style={{display:'inline-flex',alignItems:'center',gap:6,background:'var(--gold-bg)',border:'1px solid rgba(160,120,42,0.22)',borderRadius:'var(--radius-sm)',padding:'4px 10px'}}>
+      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="1.8"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      <span style={{fontSize:10,fontWeight:600,color:'var(--gold)',fontFamily:'var(--font-mono)',letterSpacing:'0.5px',textTransform:'uppercase'}}>{label}</span>
+    </div>
+  )
+}
 
 
 // Top Indian electronics reviewers — picked for: 10+ year track record, broad
