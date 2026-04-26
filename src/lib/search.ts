@@ -81,7 +81,7 @@ export type SearchResult = {
   algorithm_version: string
 }
 
-const ALGORITHM_VERSION = 'PRv5.0-multiprovider'
+const ALGORITHM_VERSION = 'PRv5.1-multilang-strict'
 const cache = new Map<string, { result: SearchResult; ts: number }>()
 // 7 DAYS — ratings/reviews/product lineups change slowly.
 // Individual SERP prices are still refreshed more frequently (see unstable_cache below).
@@ -1166,11 +1166,19 @@ async function callPerplexity(
 ): Promise<{ answer: string; products: unknown[] }> {
   const model = 'sonar-pro'
   // Strong JSON-only instruction prepended to ensure Perplexity returns parseable output
+  // Detect language directive embedded in systemPrompt and re-state it at the BOTTOM
+  // (recency bias — last instruction wins for grounded models like Perplexity which
+  // tend to mirror the language of their web search results, not the user's query language).
+  const langMatch = systemPrompt.match(/=== CRITICAL: OUTPUT LANGUAGE ===\n([^\n]+)/)
+  const langRule = langMatch ? langMatch[1].trim() : ''
   const perplexitySystem = systemPrompt +
     '\n\n=== CRITICAL OUTPUT FORMAT ===\n' +
-    'You MUST respond with ONLY a valid JSON object. No markdown fences, no narrative preamble, no citations inline.\n' +
+    'You MUST respond with ONLY a valid JSON object. No markdown fences, no narrative preamble, no inline citations.\n' +
     'Start your response with { and end with }. The JSON MUST contain a "products" array with 3 items matching the schema above.\n' +
-    'If you find yourself writing sentences before the JSON, STOP and start over with just the JSON.'
+    'NEVER include citation markers like [1] [2] [3] inside ANY JSON field — strip them entirely.\n' +
+    'NEVER use markdown formatting (**bold**, *italic*) inside JSON string values — write plain text only.\n' +
+    'If you find yourself writing sentences before the JSON, STOP and start over with just the JSON.' +
+    (langRule ? '\n\n=== ABSOLUTE LANGUAGE RULE (overrides web-source language) ===\n' + langRule + '\nEven if your web search results are in English, the JSON "answer" / "reason" / "pros" / "cons" / "avoid_if" fields MUST be in the user\'s language. Translate findings; do NOT mirror source language.\n' : '')
   for (let attempt = 0; attempt <= 1; attempt++) {
     try {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -1247,6 +1255,10 @@ async function callPerplexity(
       let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
       // Strip markdown fences if present
       cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
+      // Strip Perplexity citation markers (e.g. "[1]", "[1][2]", "[1, 3]") that leak into JSON values
+      cleaned = cleaned.replace(/\[\d+(?:[,\s]+\d+)*\]/g, '')
+      // Strip markdown bold/italic inside JSON string values
+      cleaned = cleaned.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/(?<![\w*])\*([^*\n]+)\*(?!\w)/g, '$1')
       const start = cleaned.indexOf('{')
       const endIdx = cleaned.lastIndexOf('}')
       if (start < 0 || endIdx < 0 || endIdx < start) {
@@ -1306,7 +1318,10 @@ async function callProviderCached(
   userMsg: string,
   keys: ProviderKeys
 ): Promise<{ answer: string; products: unknown[] }> {
-  const keyParts = [provider, model, cheapHash(systemPrompt), cheapHash(userMsg)]
+  // CACHE_VER bump invalidates all prior LLM cache entries when we change prompts/rules.
+  // Bump this whenever the prompt strategy materially changes.
+  const CACHE_VER = 'v5.1'
+  const keyParts = [CACHE_VER, provider, model, cheapHash(systemPrompt), cheapHash(userMsg)]
   const cacheKey = keyParts.join(':')
   const cached = unstable_cache(
     async (): Promise<{ answer: string; products: unknown[] }> => {
@@ -1356,7 +1371,8 @@ export async function runSearch(
     return { answer:'', aiProducts:[], serpProducts:[], relatedSearches:[], isOutOfScope:true, algorithm_version:ALGORITHM_VERSION }
   }
 
-  const cacheKey = `${question.toLowerCase().trim()}|${city}|${state}`
+  // ALGORITHM_VERSION suffix invalidates ALL prior cached results when we bump prompts.
+  const cacheKey = `${ALGORITHM_VERSION}|${question.toLowerCase().trim()}|${city}|${state}`
   const hit = cache.get(cacheKey)
   if (hit && Date.now()-hit.ts<CACHE_TTL) {
     console.log(`[Perf] total=${Date.now()-t0}ms cache=HIT`)
@@ -1463,6 +1479,10 @@ export async function runSearch(
   const r = await callProviderCached(plan.primary.provider, plan.primary.model, systemPrompt, userMsg, keys)
   track('llm_primary', llmStart)
   console.log(`[Search] PRIMARY ${plan.primary.provider} returned: answer=${r.answer.length}chars products=${r.products.length} (${timings.llm_primary}ms)`)
+  // Sanity check — did the LLM honor the language directive?
+  if (detectedLang && detectedLang !== 'en-IN' && r.answer && !textMatchesLanguageScript(r.answer, detectedLang)) {
+    console.warn(`[LangCheck] WARNING: ${plan.primary.provider} returned answer in WRONG SCRIPT for ${detectedLang}. Will fall back to post-translate.`)
+  }
   // Primary acceptance: must have products (answer alone with empty products is useless for cards)
   // But if primary returned the out-of-scope sentinel, respect it immediately
   if (r.answer === '__OUT_OF_SCOPE__') {
