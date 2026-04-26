@@ -83,109 +83,6 @@ function EditorSeal({label}:{label:string}){
 }
 
 
-// Top Indian electronics reviewers — picked for: 10+ year track record, broad
-// category coverage, strong SEO presence (Google site:search reliably finds reviews).
-// Chips render as small links; clicking opens Google site-restricted search for
-// this product on the reviewer's domain. We delegate URL discovery to Google.
-const REVIEWERS: Array<{name: string; domain: string; tone: string}> = [
-  { name: 'MySmartPrice', domain: 'mysmartprice.com', tone: 'Spec-heavy, India pricing' },
-  { name: 'Beebom',        domain: 'beebom.com',        tone: 'Editorial, hands-on' },
-  { name: '91mobiles',     domain: '91mobiles.com',     tone: 'Phones / wearables specialist' },
-  { name: 'Smartprix',     domain: 'smartprix.com',     tone: 'Comparison + specs' },
-]
-
-// Build a Google site-search URL for a specific reviewer + product.
-// Includes "review" keyword to filter out spec-only product pages.
-function reviewSearchUrl(domain: string, productName: string): string {
-  const cleanName = productName
-    .replace(/\([^)]*\)/g, '')   // strip any leftover parens
-    .replace(/\s+/g, ' ')
-    .trim()
-  const q = `site:${domain} "${cleanName}" review`
-  return `https://www.google.com/search?q=${encodeURIComponent(q)}`
-}
-
-// Build a generic "more reviews" Google search (no site restriction).
-// Catches reviewers we don't list + YouTube videos + Reddit threads.
-function generalReviewSearchUrl(productName: string): string {
-  const cleanName = productName.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim()
-  return `https://www.google.com/search?q=${encodeURIComponent(`"${cleanName}" review india`)}`
-}
-
-function ReviewerLinks({productName}:{productName:string}){
-  // Hide for very generic product names — site-search would return noise.
-  // Heuristic: name needs at least 2 distinct words and 1 digit (model identifier).
-  const tokens = productName.split(/\s+/).filter(Boolean)
-  const hasModelId = /\d/.test(productName)
-  if (tokens.length < 2 || !hasModelId) return null
-
-  return (
-    <div style={{marginBottom:14,padding:'12px 14px',background:'var(--bg-2,#f9f8f7)',borderRadius:'var(--radius)',border:'1px solid rgba(0,0,0,0.06)'}}>
-      <div style={{fontSize:10,color:'var(--ink-3,#57534E)',fontFamily:'var(--font-mono)',letterSpacing:'1.5px',textTransform:'uppercase',fontWeight:700,marginBottom:10,display:'flex',alignItems:'center',gap:6}}>
-        <span>What reviewers say</span>
-        <span style={{fontSize:9,color:'var(--ink-4,#A8A29E)',fontWeight:500,textTransform:'none',letterSpacing:0,fontFamily:'var(--font-sans)'}}>· via Google search</span>
-      </div>
-      <div style={{display:'flex',flexWrap:'wrap',gap:7}}>
-        {REVIEWERS.map(r => (
-          <a
-            key={r.domain}
-            href={reviewSearchUrl(r.domain, productName)}
-            target="_blank"
-            rel="noopener nofollow"
-            title={`Search ${r.name} for ${productName} (${r.tone})`}
-            style={{
-              display:'inline-flex',
-              alignItems:'center',
-              gap:5,
-              padding:'5px 11px',
-              borderRadius:100,
-              background:'#FFFFFF',
-              border:'1px solid rgba(0,0,0,0.08)',
-              color:'var(--ink-2,#3D3A36)',
-              fontSize:12,
-              fontWeight:500,
-              textDecoration:'none',
-              boxShadow:'0 1px 2px rgba(0,0,0,0.03)',
-              transition:'all 0.15s',
-            }}
-          >
-            {r.name}
-            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{opacity:0.5,marginLeft:1}}>
-              <path d="M7 17L17 7M17 7H8M17 7V16"/>
-            </svg>
-          </a>
-        ))}
-        <a
-          href={generalReviewSearchUrl(productName)}
-          target="_blank"
-          rel="noopener nofollow"
-          title={`Search Google for all ${productName} reviews`}
-          style={{
-            display:'inline-flex',
-            alignItems:'center',
-            gap:5,
-            padding:'5px 11px',
-            borderRadius:100,
-            background:'transparent',
-            border:'1px dashed rgba(91,79,207,0.3)',
-            color:'var(--accent,#5B4FCF)',
-            fontSize:12,
-            fontWeight:500,
-            textDecoration:'none',
-            transition:'all 0.15s',
-          }}
-        >
-          More reviews
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{opacity:0.7,marginLeft:1}}>
-            <path d="M7 17L17 7M17 7H8M17 7V16"/>
-          </svg>
-        </a>
-      </div>
-    </div>
-  )
-}
-
-
 function AiCard({p,idx}:{p:AiProduct;idx:number}){
   const [open,setOpen]=useState(false)
   const buyUrl=getDirectUrl(p.seller,p.name)
@@ -257,15 +154,6 @@ function AiCard({p,idx}:{p:AiProduct;idx:number}){
             {p.available_variants.join(' · ')}
           </div>
         )}
-
-        {/* ── Reviewer takes — delegated to Google site-search ──
-            We DON'T quote reviewers (copyright + freshness risk).
-            We DON'T scrape review URLs (fragile + slow).
-            We DELEGATE to Google: each chip opens a site-restricted
-            search for THIS product on THAT reviewer's domain.
-            Pros: zero ongoing maintenance, always current, legally clean.
-            Cons: occasional dead-end clicks for niche products. */}
-        <ReviewerLinks productName={p.name} />
 
         {/* Why this result */}
         {p.reason&&(
