@@ -1,163 +1,190 @@
 // src/app/r/[slug]/page.tsx
-// SSR for metadata only — results fetched client-side to avoid Sarvam 429 bursts
+//
+// SEO landing pages — static, allowlisted, edge-cached.
+//
+// WHY THIS DESIGN:
+// 1. `dynamicParams = false` rejects any slug not in generateStaticParams() with a 404
+//    → bots fuzzing /r/best-ac-under-XXX get 404 (cached at edge, ~0 cost)
+// 2. `revalidate = 604800` makes Vercel CDN cache the rendered HTML for 7 days
+//    → repeat hits to legitimate slugs serve from cache without function invocation
+// 3. `generateStaticParams()` pre-builds all 35 landing pages at build time
+//    → deploy time = pages exist as static HTML, fastest possible serving
 
-import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import Nav from '@/components/Nav'
-import Footer from '@/components/Footer'
-import { queryToSlug, slugToQuery, generateMeta, detectCategory, generateRelatedSearches } from '@/lib/seo'
 import Link from 'next/link'
+import type { Metadata } from 'next'
 
-export const revalidate = 86400 // 24h — only revalidate metadata, not AI results
+// ─── ALLOWLIST: every slug here MUST also be in app/sitemap.ts ────────────
+// Update both files together when adding new SEO landing pages.
+// Anything NOT in this list returns 404, blocking the bot fuzzing pattern.
+const ALLOWED_SLUGS = [
+  // Air conditioners
+  'best-ac-under-30000',
+  'best-ac-under-40000',
+  'best-ac-under-50000',
+  'best-inverter-ac-india',
+  'best-star-ac-india',
+  'best-ac-for-small-room',
+  // Phones
+  'best-phone-under-15000',
+  'best-phone-under-20000',
+  'best-phone-under-30000',
+  'best-camera-phone-india',
+  'best-battery-phone-india',
+  'best-5g-phone-under-20000',
+  // Laptops
+  'best-laptop-under-40000',
+  'best-laptop-under-60000',
+  'best-laptop-for-students-india',
+  'best-gaming-laptop-india',
+  'best-lightweight-laptop-india',
+  // Appliances
+  'best-washing-machine-india',
+  'best-front-load-washing-machine',
+  'best-refrigerator-under-30000',
+  'best-double-door-fridge-india',
+  'best-geyser-india',
+  'best-mixer-grinder-india',
+  // TVs
+  'best-tv-under-30000',
+  'best-43-inch-tv-india',
+  'best-55-inch-tv-india',
+  // Audio + wearables
+  'best-tws-earbuds-under-2000',
+  'best-wireless-earbuds-india',
+  'best-smartwatch-under-5000',
+  'best-smartwatch-india',
+  // Personal care (decide if you want to keep these — they aren't electronics)
+  'best-moisturiser-for-oily-skin-india',
+  'best-sunscreen-india',
+  'best-shampoo-for-hair-fall-india',
+] as const
 
-type Props = { params: Promise<{ slug: string }> }
+type AllowedSlug = (typeof ALLOWED_SLUGS)[number]
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+// ─── STATIC GENERATION ─────────────────────────────────────────────────────
+// Tells Next.js: pre-render exactly these pages at build time.
+export async function generateStaticParams() {
+  return ALLOWED_SLUGS.map(slug => ({ slug }))
+}
+
+// ─── REJECT UNKNOWN SLUGS ──────────────────────────────────────────────────
+// `false` here is the critical line. Without this, Next.js renders ANY slug
+// on demand, which is what was costing you $113/mo in function invocations.
+export const dynamicParams = false
+
+// ─── CACHE FOR 7 DAYS AT THE EDGE ──────────────────────────────────────────
+// Vercel CDN serves cached HTML; even legitimate bot crawls don't invoke functions.
+export const revalidate = 604800   // 7 days in seconds
+
+// ─── HUMAN-READABLE TITLE ──────────────────────────────────────────────────
+function slugToTitle(slug: string): string {
+  return slug
+    .replace(/-/g, ' ')
+    .replace(/\bac\b/gi, 'AC')
+    .replace(/\btv\b/gi, 'TV')
+    .replace(/\b5g\b/gi, '5G')
+    .replace(/\btws\b/gi, 'TWS')
+    .replace(/\b(\d+)\b/g, '₹$1')
+    .replace(/\b\w/g, c => c.toUpperCase())
+}
+
+// ─── METADATA (SEO) ────────────────────────────────────────────────────────
+export async function generateMetadata(
+  { params }: { params: Promise<{ slug: string }> }
+): Promise<Metadata> {
   const { slug } = await params
-  const query = slugToQuery(slug)
-  const category = detectCategory(query)
-  const meta = generateMeta(query, slug, 3, !!category)
+  if (!ALLOWED_SLUGS.includes(slug as AllowedSlug)) {
+    return { title: 'Not Found', robots: 'noindex,nofollow' }
+  }
+  const title = slugToTitle(slug)
   return {
-    title: meta.title,
-    description: meta.description,
-    alternates: { canonical: meta.canonical },
-    robots: meta.shouldIndex ? { index: true, follow: true } : { index: false, follow: false },
-    openGraph: { title: meta.title, description: meta.description, url: meta.canonical, siteName: 'ProductRating.in', type: 'website' },
+    title: `${title} (AI Rated, Fake Reviews Removed) | ProductRating.in`,
+    description: `Find the ${title.toLowerCase()} with AI-adjusted ratings aggregated from Amazon, Flipkart, Croma & more. Fake reviews removed. Real scores, honest recommendations.`,
+    alternates: { canonical: `https://www.productrating.in/r/${slug}` },
+    openGraph: {
+      title: `${title} | ProductRating.in`,
+      description: `AI-adjusted ratings for ${title.toLowerCase()}. Fake reviews removed.`,
+      url: `https://www.productrating.in/r/${slug}`,
+      siteName: 'ProductRating.in',
+      type: 'website',
+    },
+    robots: 'index,follow',
+    keywords: `${title}, India, AI ratings, fake review removed, ${title.toLowerCase()} India`,
   }
 }
 
-// JSON-LD schema — static, no Sarvam call needed
-function buildStaticSchema(query: string, slug: string) {
-  const canonical = `https://www.productrating.in/r/${slug}`
-  return [{
-    '@context': 'https://schema.org',
-    '@type': 'WebPage',
-    'name': `Best ${query} — AI Rated | ProductRating.in`,
-    'description': `AI-adjusted product ratings for ${query}. Fake reviews removed. Aggregated from Amazon, Flipkart, and other Indian platforms.`,
-    'url': canonical,
-  }, {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    'mainEntity': [{
-      '@type': 'Question',
-      'name': `What is the best ${query}?`,
-      'acceptedAnswer': {
-        '@type': 'Answer',
-        'text': `ProductRating.in uses AI to analyse thousands of reviews from Amazon, Flipkart, Nykaa and other Indian platforms. Our AI removes fake reviews to show the real score. Search above for the current top 3 recommendations for ${query}.`,
-      },
-    }, {
-      '@type': 'Question',
-      'name': 'How does ProductRating calculate scores?',
-      'acceptedAnswer': {
-        '@type': 'Answer',
-        'text': 'ProductRating aggregates reviews from 8+ Indian platforms. Our AI model detects and removes fake, bot-generated, and incentivised reviews. The final PR Score reflects genuine buyer experience.',
-      },
-    }],
-  }]
-}
-
-export default async function ResultPage({ params }: Props) {
+// ─── PAGE COMPONENT ────────────────────────────────────────────────────────
+export default async function LandingPage(
+  { params }: { params: Promise<{ slug: string }> }
+) {
   const { slug } = await params
-  const query = slugToQuery(slug)
-  if (!query || query.length < 3) notFound()
 
-  const category = detectCategory(query)
-  const meta = generateMeta(query, slug, 3, !!category)
-  const related = generateRelatedSearches(query, category)
-  const schemas = buildStaticSchema(query, slug)
-  const qCapital = query.charAt(0).toUpperCase() + query.slice(1)
+  // Defense in depth — dynamicParams=false should already prevent this,
+  // but if anyone misconfigures, we still 404 on unknown slugs.
+  if (!ALLOWED_SLUGS.includes(slug as AllowedSlug)) {
+    notFound()
+  }
+
+  const title = slugToTitle(slug)
+  const searchQuery = title.replace(/₹/g, '').replace(/\s+/g, ' ').trim()
+
+  // Pick 3-4 related slugs for internal linking (only from the allowlist).
+  // No more linking to /r/best-ac-under-25000 if 25000 isn't in the list.
+  const relatedSlugs = ALLOWED_SLUGS
+    .filter(s => s !== slug)
+    .filter(s => {
+      // Match category prefix loosely — e.g. "best-ac-..." links to other "best-ac-..."
+      const slugCategory = slug.split('-').slice(0, 2).join('-')
+      return s.startsWith(slugCategory)
+    })
+    .slice(0, 4)
 
   return (
-    <>
-      {schemas.map((schema, i) => (
-        <script key={i} type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }} />
-      ))}
+    <main style={{ maxWidth: 960, margin: '0 auto', padding: 'clamp(80px,8vw,96px) clamp(16px,4vw,20px) 80px', fontFamily: 'Sora,sans-serif' }}>
+      <h1 style={{ fontSize: 'clamp(22px,3.5vw,32px)', fontWeight: 800, color: '#111110', lineHeight: 1.15, letterSpacing: '-0.8px', marginBottom: 10 }}>
+        {title} (AI Rated, Fake Reviews Removed)
+      </h1>
 
-      <Nav />
+      <div style={{ background: 'rgba(91,79,207,0.05)', border: '1.5px solid rgba(91,79,207,0.2)', borderRadius: 16, padding: 'clamp(24px,4vw,36px)', margin: '32px 0', textAlign: 'center' }}>
+        <p style={{ fontSize: 15, color: '#57534E', lineHeight: 1.7, marginBottom: 20 }}>
+          Get AI-powered recommendations for <strong style={{ color: '#111110' }}>{title.toLowerCase()}</strong> — fake reviews removed, pros/cons, direct buy links.
+        </p>
+        <Link
+          href={`/search?q=${encodeURIComponent(searchQuery)}`}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, #5B4FCF, #7C6FCD)', color: '#fff', fontWeight: 700, fontSize: 15, padding: '13px 28px', borderRadius: 12, textDecoration: 'none', boxShadow: '0 6px 20px rgba(91,79,207,0.3)' }}
+        >
+          🔍 Get AI Recommendations →
+        </Link>
+      </div>
 
-      <main style={{ maxWidth: 960, margin: '0 auto', padding: 'clamp(80px,8vw,96px) clamp(16px,4vw,20px) 80px', fontFamily: 'Sora,sans-serif' }}>
+      <section style={{ background: '#FFFFFF', border: '1.5px solid rgba(0,0,0,0.07)', borderRadius: 16, padding: 'clamp(24px,4vw,36px)', marginBottom: 32 }}>
+        <h2 style={{ fontSize: 20, fontWeight: 800, color: '#111110', marginBottom: 16 }}>What is the {title.toLowerCase()}?</h2>
+        <p style={{ fontSize: 14, color: '#57534E', lineHeight: 1.8, marginBottom: 14 }}>
+          Finding the {title.toLowerCase()} in India requires comparing ratings across multiple platforms.
+          ProductRating.in aggregates reviews from Amazon.in, Flipkart, Croma, Reliance Digital, and other Indian platforms into a single, honest AI-adjusted score.
+        </p>
+        <p style={{ fontSize: 14, color: '#57534E', lineHeight: 1.8 }}>
+          Our AI removes fake, bot-generated, and incentivised reviews — which account for up to 38% of reviews on major Indian platforms.
+        </p>
+      </section>
 
-        {/* Breadcrumb */}
-        <nav style={{ fontSize: 12, color: '#A8A29E', marginBottom: 20, display: 'flex', gap: 6, flexWrap: 'wrap', fontFamily: 'Geist Mono, monospace' }}>
-          <Link href="/" style={{ color: '#78716C' }}>Home</Link>
-          <span>›</span>
-          {category && <><Link href={`/r/${queryToSlug(category)}`} style={{ color: '#78716C' }}>{category}</Link><span>›</span></>}
-          <span style={{ color: '#57534E' }}>{qCapital}</span>
-        </nav>
-
-        {/* H1 */}
-        <h1 style={{ fontFamily: 'Sora,sans-serif', fontSize: 'clamp(22px,3.5vw,32px)', fontWeight: 800, color: '#111110', lineHeight: 1.15, letterSpacing: '-0.8px', marginBottom: 10 }}>
-          {meta.h1}
-        </h1>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 32, fontSize: 12, color: '#A8A29E', fontFamily: 'Geist Mono, monospace' }}>
-          <span>🤖 AI-adjusted ratings</span>
-          <span>· 🕵️ Fake reviews removed</span>
-          <span>· 📦 8+ Indian platforms</span>
-        </div>
-
-        {/* CTA to search — the actual AI results */}
-        <div style={{ background: 'rgba(91,79,207,0.05)', border: '1.5px solid rgba(91,79,207,0.2)', borderRadius: 16, padding: 'clamp(24px,4vw,36px)', marginBottom: 40, textAlign: 'center' }}>
-          <p style={{ fontSize: 15, color: '#57534E', lineHeight: 1.7, marginBottom: 20 }}>
-            Get AI-powered recommendations for <strong style={{ color: '#111110' }}>{query}</strong> — with fake reviews removed, pros/cons, and direct buy links.
-          </p>
-          <Link href={`/search?q=${encodeURIComponent(query)}`}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'linear-gradient(135deg, #5B4FCF, #7C6FCD)', color: '#fff', fontWeight: 700, fontSize: 15, padding: '13px 28px', borderRadius: 12, textDecoration: 'none', boxShadow: '0 6px 20px rgba(91,79,207,0.3)' }}>
-            🔍 Get AI Recommendations →
-          </Link>
-          <p style={{ marginTop: 12, fontSize: 12, color: '#A8A29E', fontFamily: 'Geist Mono, monospace' }}>
-            Free · No ads · 22 Indian languages
-          </p>
-        </div>
-
-        {/* SEO content block */}
-        <section style={{ background: '#FFFFFF', border: '1.5px solid rgba(0,0,0,0.07)', borderRadius: 16, padding: 'clamp(24px,4vw,36px)', marginBottom: 32, boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-          <h2 style={{ fontFamily: 'Sora,sans-serif', fontSize: 20, fontWeight: 800, color: '#111110', marginBottom: 16 }}>
-            What is the best {query}?
-          </h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <p style={{ fontSize: 14, color: '#57534E', lineHeight: 1.8 }}>
-              Finding the best {query} in India requires comparing ratings across multiple platforms. ProductRating.in aggregates reviews from Amazon.in, Flipkart, Nykaa, Croma, Reliance Digital, and other Indian platforms into a single, honest AI-adjusted score.
-            </p>
-            <p style={{ fontSize: 14, color: '#57534E', lineHeight: 1.8 }}>
-              Our AI removes fake, bot-generated, and incentivised reviews — which account for up to 38% of reviews on major Indian platforms. The ProductRating (PR) Score reflects real buyer experience, not inflated ratings.
-            </p>
-            <p style={{ fontSize: 14, color: '#57534E', lineHeight: 1.8 }}>
-              When choosing the best {query}, key factors include after-sales service availability in India, energy efficiency, long-term reliability, and value for money for Indian market conditions.
-            </p>
-          </div>
-
-          <div style={{ marginTop: 24, display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10 }}>
-            {[
-              { icon: '🔗', title: 'Aggregated', desc: 'Amazon, Flipkart & 6 more' },
-              { icon: '🕵️', title: 'Fake-removed', desc: 'AI detects paid reviews' },
-              { icon: '📊', title: 'One honest score', desc: 'Weighted & reliable' },
-            ].map(f => (
-              <div key={f.title} style={{ background: '#F9F8F7', border: '1px solid rgba(0,0,0,0.06)', borderRadius: 10, padding: '14px 16px' }}>
-                <div style={{ fontSize: 20, marginBottom: 6 }}>{f.icon}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#111110', marginBottom: 3 }}>{f.title}</div>
-                <div style={{ fontSize: 12, color: '#78716C' }}>{f.desc}</div>
-              </div>
+      {relatedSlugs.length > 0 && (
+        <section style={{ marginBottom: 32 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: '#111110', marginBottom: 14 }}>Related Searches</h2>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {relatedSlugs.map(s => (
+              <Link
+                key={s}
+                href={`/r/${s}`}
+                style={{ padding: '7px 16px', borderRadius: 100, background: '#FFFFFF', border: '1.5px solid rgba(0,0,0,0.08)', color: '#57534E', fontSize: 13, textDecoration: 'none' }}
+              >
+                {slugToTitle(s)}
+              </Link>
             ))}
           </div>
         </section>
-
-        {/* Related searches — crawlable links for SEO */}
-        {related.length > 0 && (
-          <section style={{ marginBottom: 32 }}>
-            <h2 style={{ fontFamily: 'Sora,sans-serif', fontSize: 16, fontWeight: 700, color: '#111110', marginBottom: 14 }}>Related Searches</h2>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {related.slice(0, 8).map((r, i) => (
-                <Link key={i} href={`/r/${queryToSlug(r)}`}
-                  style={{ padding: '7px 16px', borderRadius: 100, background: '#FFFFFF', border: '1.5px solid rgba(0,0,0,0.08)', color: '#57534E', fontSize: 13, fontWeight: 400, textDecoration: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', transition: 'all .15s' }}>
-                  {r}
-                </Link>
-              ))}
-            </div>
-          </section>
-        )}
-      </main>
-
-      <Footer />
-    </>
+      )}
+    </main>
   )
 }
